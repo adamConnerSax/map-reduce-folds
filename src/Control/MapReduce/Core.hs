@@ -95,7 +95,6 @@ import           Data.Kind                      ( Type
                                                 )
 import qualified Data.Profunctor               as P
 import           Control.Arrow                  ( second )
-import           Control.Monad                  ( join )
 
 -- | `Unpack` is for "melting" rows (@g ~ [])@ or filtering items (@g ~ Maybe@).
 data Unpack (mm :: Maybe (Type -> Type)) g x y where
@@ -268,7 +267,7 @@ uagMapAllGatherOnceFold gatherer' unpacker assigner = MapGather gatherer'
     UnpackM unpackM ->
       let (AssignM assign') = assigner
       in  MapStepFoldM
-          $ FL.premapM (join . fmap (traverse assign') . unpackM)
+          $ FL.premapM ((traverse assign' =<<) . unpackM)
           $ fmap (foldInto gatherer')
           $ FL.generalize FL.mconcat
 {-# INLINABLE uagMapAllGatherOnceFold #-}
@@ -293,13 +292,11 @@ uagMapAllGatherEachFold gatherer' unpacker assigner = MapGather gatherer'
       let (AssignM assign') = assigner
       in  MapStepFoldM
           $ FL.premapM
-              ( fmap (foldInto gatherer')
-              . join
-              . fmap (traverse assign')
-              . unpackM
-              )
+              (fmap (foldInto gatherer') . (traverse assign' =<<) . unpackM)
           $ FL.generalize FL.mconcat
 {-# INLINABLE uagMapAllGatherEachFold #-}
+-- NB:  (\f -> (traverse f =<<)) :: (Traversable t, Applicative m) => (a -> m b) -> m (t a) -> m (t b) 
+-- that is, (traverse f =<<) = join . fmap (traverse f). Not sure I prefer the former.  But hlint does...
 
 -- | Wrapper for functions to reduce keyed and grouped data to the result type
 -- there are four constructors because we handle non-monadic and monadic reductions and
