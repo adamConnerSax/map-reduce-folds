@@ -12,6 +12,7 @@
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE InstanceSigs          #-}
+{-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Core
@@ -69,29 +70,32 @@ module Control.MapReduce.Core
   -- * functions to combine unpacking, assigning and gathering
   , uagMapAllGatherEachFold
   , uagMapEachFold
-  , uagMapAllGatherEachFold
+  , uagMapAllGatherOnceFold
   -- * functions which assemble all the pieces into a 'Fold'
   , mapReduceFold
   , mapGatherReduceFold
   -- * Managing non-monadic and monadic folds
   -- ** functions to generalize non-monadic to monadic
   , generalizeUnpack
+  , generalizeAssign
   , generalizeMapStep
+  , generalizeMapGather
   , generalizeReduce
   -- **
   , mapFold
-  , IdReducer(..)
+  , IdStep(..)
   )
 where
 
 import qualified Control.Foldl                 as FL
+import           Data.Functor.Identity          ( Identity(Identity) )
 import           Data.Monoid                    ( Monoid(..) )
 import           Data.Kind                      ( Type
                                                 , Constraint
                                                 )
 import qualified Data.Profunctor               as P
-
-
+import           Control.Arrow                  ( second )
+import           Control.Monad                  ( join )
 
 -- | `Unpack` is for "melting" rows (@g ~ [])@ or filtering items (@g ~ Maybe@).
 data Unpack (mm :: Maybe (Type -> Type)) g x y where
@@ -108,21 +112,34 @@ instance Functor g => P.Profunctor (Unpack mm g) where
   dimap l r (UnpackM f) = UnpackM ( fmap (fmap r) . f . l)
   {-# INLINABLE dimap #-}
 
+
+-- | "lift" a non-monadic Unpack to a monadic one for any monad m
 generalizeUnpack :: Monad m => Unpack 'Nothing g x y -> Unpack ( 'Just m) g x y
 generalizeUnpack (Unpack f) = UnpackM $ return . f
 {-# INLINABLE generalizeUnpack #-}
 
 -- | Associate a key with a given item/row
-data Assign k y c where
-  Assign :: (y -> (k, c)) -> Assign k y c
+data Assign (mm :: Maybe (Type -> Type)) k y c where
+  Assign :: (y -> (k, c)) -> Assign 'Nothing k y c
+  AssignM :: Monad m => (y -> m (k, c)) -> Assign ('Just m) k y c
 
-instance Functor (Assign k y) where
-  fmap f (Assign g) = Assign (\y -> let (k,c) = g y in (k, f c))
+instance Functor (Assign mm k y) where
+  fmap f (Assign h) = Assign $ second f . h --(\y -> let (k,c) = g y in (k, f c))
+  fmap f (AssignM h) = AssignM $ fmap (second f) . h
   {-# INLINABLE fmap #-}
 
-instance P.Profunctor (Assign k) where
-  dimap l r (Assign g) = Assign (\z -> let (k,c) = g (l z) in (k, r c))
+-- Assign is not applicative for the same reason Data.Map.Map is not:
+-- because we cannot come up with a default key
+
+instance P.Profunctor (Assign mm k) where
+  dimap l r (Assign h) = Assign $ second r . h . l --(\z -> let (k,c) = g (l z) in (k, r c))
+  dimap l r (AssignM h) = AssignM $ fmap (second r) . h . l
   {-# INLINABLE dimap #-}
+
+-- | "lift" a non-monadic Assign to a monadic one for any monad m
+generalizeAssign :: Monad m => Assign 'Nothing k y c -> Assign ( 'Just m) k y c
+generalizeAssign (Assign h) = AssignM $ return . h
+{-# INLINABLE generalizeAssign #-}
 
 -- Not a class because for the same map we may want different methods of folding and traversing
 -- E.g., for a parallel mapReduce
@@ -201,70 +218,87 @@ mapFold (MapStepFoldM f) = f
 -- | Type for holding a step and gatherer 
 data MapGather mm x ec gt k c d = MapGather { gatherer :: Gatherer ec gt k c d, mapStep :: MapStep mm x gt }
 
+generalizeMapGather
+  :: Monad m
+  => MapGather 'Nothing x ec gt k c d
+  -> MapGather ( 'Just m) x ec gt k c d
+generalizeMapGather (MapGather g s) = MapGather g (generalizeMapStep s)
+
 -- Fundamentally 3 ways to combine these operations to produce a MapStep:
 -- group . fmap . <> . fmap : "MapEach "
 -- group . <> . fmap . fmap : "MapAllGroupOnce" 
 --  <> . group . fmap . fmap : "MapAllGroupEach"
 -- | Do the map step by unpacking to a monoid, merge those monoids via mappend, then do the assigning and grouping 
 uagMapEachFold
-  :: (Monoid (g y), Functor g, Foldable g)
+  :: (Monoid (g y), Functor g, Traversable g)
   => Gatherer ec gt k c d
   -> Unpack mm g x y
-  -> Assign k y c
+  -> Assign mm k y c
   -> MapGather mm x ec gt k c d
-uagMapEachFold gatherer' unpacker (Assign assign') = MapGather gatherer'
-                                                               mapStep'
+uagMapEachFold gatherer' unpacker assigner = MapGather gatherer' mapStep'
  where
   mapStep' = case unpacker of
-    Unpack unpack -> MapStepFold
-      $ P.dimap unpack (foldInto gatherer' . fmap assign') FL.mconcat
+    Unpack unpack ->
+      let (Assign assign') = assigner
+      in  MapStepFold
+            $ P.dimap unpack (foldInto gatherer' . fmap assign') FL.mconcat
     UnpackM unpackM ->
-      MapStepFoldM
-        $ FL.premapM unpackM
-        $ fmap (foldInto gatherer' . fmap assign')
-        $ FL.generalize FL.mconcat
+      let (AssignM assign') = assigner
+      in  MapStepFoldM
+          $ FL.premapM unpackM
+          $ postMapM (fmap (foldInto gatherer') . traverse assign')
+          $ FL.generalize FL.mconcat
 {-# INLINABLE uagMapEachFold #-}
 
 -- | Do the map step by unpacking and assigning to a monoid, merge those monoids via mappend, then do the grouping 
 uagMapAllGatherOnceFold
-  :: (Monoid (g (k, c)), Functor g, Foldable g)
+  :: (Monoid (g (k, c)), Traversable g)
   => Gatherer ec gt k c d
   -> Unpack mm g x y
-  -> Assign k y c
+  -> Assign mm k y c
   -> MapGather mm x ec gt k c d --MapStep mm x (mt k d)
-uagMapAllGatherOnceFold gatherer' unpacker (Assign assign') = MapGather
-  gatherer'
-  mapStep'
+uagMapAllGatherOnceFold gatherer' unpacker assigner = MapGather gatherer'
+                                                                mapStep'
  where
   mapStep' = case unpacker of
-    Unpack unpack -> MapStepFold
-      $ P.dimap (fmap assign' . unpack) (foldInto gatherer') FL.mconcat
+    Unpack unpack ->
+      let (Assign assign') = assigner
+      in  MapStepFold
+            $ P.dimap (fmap assign' . unpack) (foldInto gatherer') FL.mconcat
     UnpackM unpackM ->
-      MapStepFoldM
-        $ FL.premapM (fmap (fmap assign') . unpackM)
-        $ fmap (foldInto gatherer')
-        $ FL.generalize FL.mconcat
+      let (AssignM assign') = assigner
+      in  MapStepFoldM
+          $ FL.premapM (join . fmap (traverse assign') . unpackM)
+          $ fmap (foldInto gatherer')
+          $ FL.generalize FL.mconcat
 {-# INLINABLE uagMapAllGatherOnceFold #-}
 
 -- | Do the map step by unpacking, then assigning, gathering into a monoid, then grouping.
 -- This is the most general since it doesn't require that unpack or assign produce monoidal results.
 uagMapAllGatherEachFold
-  :: (Functor g, Foldable g, Monoid gt)
+  :: (Traversable g, Monoid gt)
   => Gatherer ec gt k c d
   -> Unpack mm g x y
-  -> Assign k y c
+  -> Assign mm k y c
   -> MapGather mm x ec gt k c d --MapStep mm x (mt k d)
-uagMapAllGatherEachFold gatherer' unpacker (Assign assign') = MapGather
-  gatherer'
-  mapStep'
+uagMapAllGatherEachFold gatherer' unpacker assigner = MapGather gatherer'
+                                                                mapStep'
  where
   mapStep' = case unpacker of
-    Unpack unpack -> MapStepFold
-      $ FL.premap (foldInto gatherer' . fmap assign' . unpack) FL.mconcat
+    Unpack unpack ->
+      let (Assign assign') = assigner
+      in  MapStepFold $ FL.premap (foldInto gatherer' . fmap assign' . unpack)
+                                  FL.mconcat
     UnpackM unpackM ->
-      MapStepFoldM
-        $ FL.premapM (fmap (foldInto gatherer' . fmap assign') . unpackM)
-        $ FL.generalize FL.mconcat
+      let (AssignM assign') = assigner
+      in  MapStepFoldM
+          $ FL.premapM
+              ( fmap (foldInto gatherer')
+              . join
+              . fmap (traverse assign')
+              . unpackM
+              )
+          $ FL.generalize FL.mconcat
 {-# INLINABLE uagMapAllGatherEachFold #-}
 
 -- | Wrapper for functions to reduce keyed and grouped data to the result type
@@ -315,15 +349,22 @@ generalizeReduce
   :: Monad m => Reduce 'Nothing k h x e -> Reduce ( 'Just m) k h x e
 generalizeReduce (Reduce     f) = ReduceM $ \k -> return . f k
 generalizeReduce (ReduceFold f) = ReduceFoldM $ FL.generalize . f
+{-# INLINABLE generalizeReduce #-}
 
 -- | simplifies the unpack only map-reductions 
-class IdReducer (mm :: Maybe (Type -> Type)) where
+class IdStep (mm :: Maybe (Type -> Type)) where
+  idUnpacker :: Unpack mm Identity x x
+  idAssigner :: Assign mm () y y
   idReducer :: Reduce mm k h x (h x)
 
-instance IdReducer 'Nothing where
+instance IdStep 'Nothing where
+  idUnpacker = Unpack Identity
+  idAssigner = Assign $ \y -> ((),y)
   idReducer = Reduce $ \_ x -> x
 
-instance Monad m => IdReducer ('Just m) where
+instance Monad m => IdStep ('Just m) where
+  idUnpacker = UnpackM $ return . Identity
+  idAssigner = AssignM $ \y -> return ((),y)
   idReducer = ReduceM $ \_ x -> return x
 
 -- | Put all the pieces together and create the fold
@@ -337,9 +378,9 @@ mapReduceFold gatherer' ms reducer = case reducer of
   Reduce f -> fmap (gFoldMapWithKey gatherer' f) $ mapFold ms
   ReduceFold f ->
     fmap (gFoldMapWithKey gatherer' (\k hx -> FL.fold (f k) hx)) $ mapFold ms
-  ReduceM f -> monadicMapFoldM (gFoldMapWithKeyM gatherer' f) $ mapFold ms
+  ReduceM f -> postMapM (gFoldMapWithKeyM gatherer' f) $ mapFold ms
   ReduceFoldM f ->
-    monadicMapFoldM (gFoldMapWithKeyM gatherer' (\k hx -> FL.foldM (f k) hx))
+    postMapM (gFoldMapWithKeyM gatherer' (\k hx -> FL.foldM (f k) hx))
       $ mapFold ms
 {-# INLINABLE mapReduceFold #-}
 
@@ -353,9 +394,57 @@ mapGatherReduceFold (MapGather gatherer' mapStep') =
   mapReduceFold gatherer' mapStep'
 {-# INLINABLE mapGatherReduceFold #-}
 
+-- TODO: submit a PR to foldl for this
 -- | Helper for the traversal step in monadic folds
-monadicMapFoldM :: Monad m => (a -> m b) -> FL.FoldM m x a -> FL.FoldM m x b
-monadicMapFoldM f (FL.FoldM step begin done) = FL.FoldM step begin done'
+postMapM :: Monad m => (a -> m b) -> FL.FoldM m x a -> FL.FoldM m x b
+postMapM f (FL.FoldM step begin done) = FL.FoldM step begin done'
   where done' x = done x >>= f
-{-# INLINABLE monadicMapFoldM #-}
+{-# INLINABLE postMapM #-}
 
+---
+{-
+-- unused but left here in case I can make it work.  We need to carry some proofs about MonadicTwo 
+
+-- some type-level magic for managing monadic/non-monadic
+-- return types
+-- | compute the correct return type for a function taking two steps either or both of which may be monadic.
+-- If both are monadic, the monads must be the same.
+type family MonadicTwo (mm :: Maybe (Type -> Type)) (mn :: Maybe (Type -> Type)) :: Maybe (Type -> Type) where
+  MonadicTwo 'Nothing 'Nothing = 'Nothing
+  MonadicTwo 'Nothing ('Just m) = 'Just m
+  MonadicTwo ('Just m) 'Nothing = 'Just m
+  MonadicTwo ('Just m) ('Just m) = 'Just m
+  MonadicTwo _ _ = TypeError ('Text "different monads given to a monadic map-reduce")
+
+-- | compute the correct return type for a function taking three steps either or both of which may be monadic.
+type family MonadicThree (mm :: Maybe (Type -> Type)) (mn :: Maybe (Type -> Type)) (mp :: Maybe (Type -> Type)) :: Maybe (Type -> Type) where
+  MonadicThree m n p = MonadicTwo (MonadicTwo m n) p
+
+class CorrectStep (mn :: Maybe (Type->Type)) (mm :: Maybe (Type -> Type)) where
+  correctUnpack :: Unpack mn g x y -> Unpack (MonadicTwo mn mm) g x y
+  correctAssign :: Assign mn k y c -> Assign (MonadicTwo mn mm) k y c
+  correctMapStep :: MapStep mn x q -> MapStep (MonadicTwo mn mm) x q
+  correctMapGather :: MapGather mn x ec gt k c d -> MapGather (MonadicTwo mn mm) x ec gt k c d
+  correctReduce :: Reduce mn k h x e -> Reduce (MonadicTwo mn mm) k h x e
+
+instance CorrectStep 'Nothing 'Nothing where
+  correctUnpack = id
+  correctAssign = id
+  correctMapStep = id
+  correctMapGather = id
+  correctReduce = id
+
+instance CorrectStep ('Just m) ('Just m) where
+  correctUnpack = id
+  correctAssign = id
+  correctMapStep = id
+  correctMapGather = id
+  correctReduce = id
+
+instance Monad m => CorrectStep 'Nothing ('Just m) where
+  correctUnpack = generalizeUnpack
+  correctAssign = generalizeAssign
+  correctMapStep = generalizeMapStep
+  correctMapGather = generalizeMapGather
+  correctReduce = generalizeReduce
+-}

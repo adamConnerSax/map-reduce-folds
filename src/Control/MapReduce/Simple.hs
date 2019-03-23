@@ -42,7 +42,7 @@ filter :: (x -> Bool) -> MR.Unpack 'Nothing Maybe x x
 filter t = MR.Unpack $ \x -> if t x then Just x else Nothing
 {-# INLINABLE filter #-}
 
-assign :: forall k y c . (y -> k) -> (y -> c) -> MR.Assign k y c
+assign :: forall k y c . (y -> k) -> (y -> c) -> MR.Assign 'Nothing k y c
 assign getKey getCols = MR.Assign (\y -> (getKey y, getCols y))
 {-# INLINABLE assign #-}
 
@@ -95,12 +95,11 @@ basicListF
    . ( DefaultGatherer kc k c [c]
      , Monoid e
      , Functor (MR.MapFoldT mm x)
-     , Functor g
-     , Foldable g
+     , Traversable g
      , kc k
      )
   => MR.Unpack mm g x y
-  -> MR.Assign k y c
+  -> MR.Assign mm k y c
   -> MR.Reduce mm k [] c e
   -> MR.MapFoldT mm x e
 basicListF u a r = MR.mapGatherReduceFold
@@ -111,18 +110,17 @@ unpackOnlyFold
   :: forall h mm g x y
    . ( Applicative h
      , Monoid (h y)
-     , Functor g
-     , Foldable g
+     , Traversable g
      , Foldable h
      , Functor (MR.MapFoldT mm x)
-     , MR.IdReducer mm
+     , MR.IdStep mm
      )
   => MR.Unpack mm g x y
   -> MR.MapFoldT mm x (h y)
 unpackOnlyFold unpack = MR.mapGatherReduceFold
   (MR.uagMapAllGatherEachFold (MR.defaultOrdGatherer (pure @h))
                               unpack
-                              (MR.Assign $ \x -> ((), x))
+                              (MR.idAssigner)
   )
   MR.idReducer
 
@@ -133,15 +131,14 @@ parBasicListHashableF
      , MRP.NFData k -- for the parallel assign
      , MRP.NFData c -- for the parallel assign
      , Functor (MR.MapFoldT 'Nothing x)
-     , Functor g
-     , Foldable g
+     , Traversable g
      , Hashable k
      , Eq k
      )
   => Int -- items per spark for folding and mapping
   -> Int -- number of sparks for reducing
   -> MR.Unpack 'Nothing g x y
-  -> MR.Assign k y c
+  -> MR.Assign 'Nothing k y c
   -> MR.Reduce 'Nothing k [] c e
   -> MR.MapFoldT 'Nothing x e
 parBasicListHashableF oneSparkMax numThreads u a r =
@@ -157,14 +154,13 @@ parBasicListOrdF
      , MRP.NFData k -- for the parallel assign
      , MRP.NFData c -- for the parallel assign
      , Functor (MR.MapFoldT 'Nothing x)
-     , Functor g
-     , Foldable g
+     , Traversable g
      , Ord k
      )
   => Int -- items per spark for folding and mapping
   -> Int -- number of sparks for reducing
   -> MR.Unpack 'Nothing g x y
-  -> MR.Assign k y c
+  -> MR.Assign 'Nothing k y c
   -> MR.Reduce 'Nothing k [] c e
   -> MR.MapFoldT 'Nothing x e
 parBasicListOrdF oneSparkMax numThreads u a r =

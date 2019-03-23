@@ -199,7 +199,7 @@ parFoldMonoidDC chunkSize = parFold chunkSize FL.mconcat
 -- we pay (?) to convert to a list, though this may be fused away.
 -- We divide the list in half until the chunks are below chunkSize, then we fold and use mappend to build back up
 parFold :: (Monoid b, Foldable h) => Int -> FL.Fold a b -> h a -> b
-parFold chunkSize fl@(FL.Fold step begin done) ha = divConq
+parFold chunkSize fl ha = divConq
   (FL.fold fl)
   (FL.fold FL.list ha)
   (\x -> L.length x < chunkSize)
