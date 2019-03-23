@@ -167,3 +167,4 @@ parBasicListOrdF oneSparkMax numThreads u a r =
   let g                        = MRP.parReduceGathererOrd (pure @[])
       (MR.MapGather _ mapStep) = MR.uagMapAllGatherEachFold g u a
   in  MRP.parallelMapReduceF oneSparkMax numThreads g mapStep r
+
