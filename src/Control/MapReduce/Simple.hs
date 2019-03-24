@@ -14,7 +14,31 @@
 {-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE InstanceSigs          #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
-module Control.MapReduce.Simple where
+module Control.MapReduce.Simple
+  (
+  -- * Unpackers
+    noUnpack
+  , simpleUnpack
+  , filterUnpack
+  -- * Assigners
+  , assign
+  -- * Reducers
+  , processAndRelabel
+  , processAndRelabelM
+  , foldAndRelabel
+  , foldAndRelabelM
+  -- * reduce transformers 
+  , reduceMapWithKey
+  -- * simplified map-reduce folds
+  -- ** serial
+  , mapReduceFold
+  , basicListFold
+  , unpackOnlyFold
+  -- ** parallel (non-mondaic folds only)
+  , parBasicListHashableFold
+  , parBasicListOrdFold
+  )
+where
 
 import qualified Control.MapReduce.Core        as MR
 import qualified Control.MapReduce.Gatherer    as MR
@@ -38,9 +62,9 @@ simpleUnpack :: (x -> y) -> MR.Unpack 'Nothing Identity x y
 simpleUnpack f = MR.Unpack $ Identity . f
 {-# INLINABLE simpleUnpack #-}
 
-filter :: (x -> Bool) -> MR.Unpack 'Nothing Maybe x x
-filter t = MR.Unpack $ \x -> if t x then Just x else Nothing
-{-# INLINABLE filter #-}
+filterUnpack :: (x -> Bool) -> MR.Unpack 'Nothing Maybe x x
+filterUnpack t = MR.Unpack $ \x -> if t x then Just x else Nothing
+{-# INLINABLE filterUnpack #-}
 
 assign :: forall k y c . (y -> k) -> (y -> c) -> MR.Assign 'Nothing k y c
 assign getKey getCols = MR.Assign (\y -> (getKey y, getCols y))
@@ -90,21 +114,45 @@ instance Ord k => DefaultGatherer Ord k y d where
 instance (Hashable k, Eq k, Semigroup d) => DefaultGatherer Hashable k y d where
   defaultGatherer = MR.defaultHashableGatherer
 
-basicListF
+-- | Basic mapReduce fold.  Assumes monomorphic monadic parameter (all 'Nothing or all ('Just m) for some Monad m),
+-- and fixed to mapAllGatherEach as mapping step because it is the most general, requiring only Traversable g. 
+mapReduceFold
+  :: ( Monoid e
+     , ec e
+     , Foldable h
+     , Monoid gt
+     , Functor (MR.MapFoldT mm x)
+     , Traversable g
+     , MR.UAGMapFolds mm
+     , MR.MapReduceF mm
+     )
+  => MR.Gatherer ec gt k c (h c)
+  -> MR.Unpack mm g x y
+  -> MR.Assign mm k y c
+  -> MR.Reduce mm k h c e
+  -> MR.MapFoldT mm x e
+mapReduceFold gatherer unpacker assigner reducer = MR.mapReduceF
+  gatherer
+  (MR.mapAllGatherEachF gatherer unpacker assigner)
+  reducer
+{-# INLINABLE mapReduceFold #-}
+
+basicListFold
   :: forall kc k y c mm x e g
    . ( DefaultGatherer kc k c [c]
      , Monoid e
      , Functor (MR.MapFoldT mm x)
      , Traversable g
+     , MR.UAGMapFolds mm
+     , MR.MapReduceF mm
      , kc k
      )
   => MR.Unpack mm g x y
   -> MR.Assign mm k y c
   -> MR.Reduce mm k [] c e
   -> MR.MapFoldT mm x e
-basicListF u a r = MR.mapGatherReduceFold
-  (MR.uagMapAllGatherEachFold (defaultGatherer @kc (pure @[])) u a)
-  r
+basicListFold = mapReduceFold (defaultGatherer @kc (pure @[]))
+{-# INLINABLE basicListFold #-}
 
 unpackOnlyFold
   :: forall h mm g x y
@@ -113,18 +161,19 @@ unpackOnlyFold
      , Traversable g
      , Foldable h
      , Functor (MR.MapFoldT mm x)
+     , MR.MapReduceF mm
+     , MR.UAGMapFolds mm
      , MR.IdStep mm
      )
   => MR.Unpack mm g x y
   -> MR.MapFoldT mm x (h y)
-unpackOnlyFold unpack = MR.mapGatherReduceFold
-  (MR.uagMapAllGatherEachFold (MR.defaultOrdGatherer (pure @h))
-                              unpack
-                              (MR.idAssigner)
-  )
-  MR.idReducer
+unpackOnlyFold unpack = mapReduceFold (MR.defaultOrdGatherer (pure @h))
+                                      unpack
+                                      MR.idAssigner
+                                      MR.idReducer
+{-# INLINABLE unpackOnlyFold #-}
 
-parBasicListHashableF
+parBasicListHashableFold
   :: forall k g y c x e
    . ( Monoid e
      , MRP.NFData e -- for the parallel reduce     
@@ -141,13 +190,13 @@ parBasicListHashableF
   -> MR.Assign 'Nothing k y c
   -> MR.Reduce 'Nothing k [] c e
   -> MR.MapFoldT 'Nothing x e
-parBasicListHashableF oneSparkMax numThreads u a r =
+parBasicListHashableFold oneSparkMax numThreads u a r =
   let g                        = MRP.parReduceGathererHashableL (pure @[])
       (MR.MapGather _ mapStep) = MR.uagMapAllGatherEachFold g u a
   in  MRP.parallelMapReduceF oneSparkMax numThreads g mapStep r
+{-# INLINABLE parBasicListHashableFold #-}
 
-
-parBasicListOrdF
+parBasicListOrdFold
   :: forall k g y c x e
    . ( Monoid e
      , MRP.NFData e -- for the parallel reduce     
@@ -163,8 +212,8 @@ parBasicListOrdF
   -> MR.Assign 'Nothing k y c
   -> MR.Reduce 'Nothing k [] c e
   -> MR.MapFoldT 'Nothing x e
-parBasicListOrdF oneSparkMax numThreads u a r =
+parBasicListOrdFold oneSparkMax numThreads u a r =
   let g                        = MRP.parReduceGathererOrd (pure @[])
       (MR.MapGather _ mapStep) = MR.uagMapAllGatherEachFold g u a
   in  MRP.parallelMapReduceF oneSparkMax numThreads g mapStep r
-
+{-# INLINABLE parBasicListOrdFold #-}
