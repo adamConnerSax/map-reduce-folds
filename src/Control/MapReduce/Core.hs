@@ -11,8 +11,6 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
---{-# LANGUAGE InstanceSigs          #-}
-{-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Core
@@ -58,11 +56,11 @@ module Control.MapReduce.Core
   (
     -- * Basic Types for map reduce
     -- ** non-monadic
-    Unpack(..)    
+    Unpack(..)
   , Assign(..)
   , Reduce(..)
   -- ** monadic
-  , UnpackM(..)    
+  , UnpackM(..)
   , AssignM(..)
   , ReduceM(..)
   -- * Gather and sort
@@ -93,34 +91,29 @@ module Control.MapReduce.Core
 where
 
 import qualified Control.Foldl                 as FL
-import           Data.Functor.Identity          ( Identity(Identity) )
 import           Data.Monoid                    ( Monoid(..) )
 import           Data.Kind                      ( Type
                                                 , Constraint
                                                 )
 import qualified Data.Profunctor               as P
-import           Data.Proxy                     ( Proxy(..) )
 import           Control.Arrow                  ( second )
-import           GHC.TypeLits                   ( TypeError
-                                                , ErrorMessage(Text)
-                                                )
-import           Data.Type.Equality             ( (:~:) (Refl)
-                                                )
 
 -- | `Unpack` is for "melting" rows (@g ~ [])@ or filtering items (@g ~ Maybe@).
 data Unpack g x y where
   Unpack :: (x -> g y) -> Unpack g x y
-  
+
 instance Functor g => Functor (Unpack g x) where
   fmap h (Unpack f) = Unpack (fmap h . f)
   {-# INLINABLE fmap #-}
-  
+
 instance Functor g => P.Profunctor (Unpack g) where
   dimap l r (Unpack f) = Unpack ( fmap r . f . l)
   {-# INLINABLE dimap #-}
-  
+
+-- | `UnpackM` is for "melting" rows (@g ~ [])@ or filtering items (@g ~ Maybe@). This version has a monadic result type to
+-- accomodate unpacking that might require randomness or logging during unpacking.
 data UnpackM m g x y where
-  UnpackM :: Monad m => (x -> m (g y)) -> UnpackM m g x y 
+  UnpackM :: Monad m => (x -> m (g y)) -> UnpackM m g x y
 
 instance Functor g => Functor (UnpackM m g x) where
   fmap h (UnpackM f) = UnpackM (fmap (fmap h) . f)
@@ -147,7 +140,8 @@ instance P.Profunctor (Assign k) where
   dimap l r (Assign h) = Assign $ second r . h . l --(\z -> let (k,c) = g (l z) in (k, r c))
   {-# INLINABLE dimap #-}
 
-data AssignM m k y c where  
+-- | Associate a key with a given item/row.  Monadic return type might be required for DB lookup of keys or logging during assigning.
+data AssignM m k y c where
   AssignM :: Monad m => (y -> m (k, c)) -> AssignM m k y c
 
 instance Functor (AssignM m k y) where
@@ -186,18 +180,22 @@ class Empty x
 instance Empty x
 
 -- | Do the map step by unpacking to a monoid, merge those monoids via mappend, then do the assigning and grouping 
-uagMapEachFold :: (Monoid (g y), Traversable g)
+uagMapEachFold
+  :: (Monoid (g y), Traversable g)
   => Gatherer ec gt k c d
   -> Unpack g x y
   -> Assign k y c
   -> FL.Fold x gt
 uagMapEachFold g u a =
   let (Unpack unpack) = u
-      (Assign assign) = a      
-  in P.dimap unpack (foldInto g . fmap assign) FL.mconcat where
+      (Assign assign) = a
+  in  P.dimap unpack (foldInto g . fmap assign) FL.mconcat
+ where
 {-# INLINABLE uagMapEachFold #-}
-    
-uagMapAllGatherOnceFold :: (Monoid (g (k, c)), Traversable g)
+
+-- | Do the map step by unpacking, assigning such that the unpacked and assigned items are monoidal, merge those via mappend then do the grouping   
+uagMapAllGatherOnceFold
+  :: (Monoid (g (k, c)), Traversable g)
   => Gatherer ec gt k c d
   -> Unpack g x y
   -> Assign k y c
@@ -205,10 +203,12 @@ uagMapAllGatherOnceFold :: (Monoid (g (k, c)), Traversable g)
 uagMapAllGatherOnceFold g u a =
   let (Unpack unpack) = u
       (Assign assign) = a
-  in P.dimap (fmap assign . unpack) (foldInto g) FL.mconcat
+  in  P.dimap (fmap assign . unpack) (foldInto g) FL.mconcat
 {-# INLINABLE uagMapAllGatherOnceFold #-}
 
-uagMapAllGatherEachFold :: (Monoid gt, Traversable g)
+-- | Do the map step by unpacking, assigning then gathering to a monoid in each key.  This one is the most general since (g a) need not be a monoid
+uagMapAllGatherEachFold
+  :: (Monoid gt, Traversable g)
   => Gatherer ec gt k c d
   -> Unpack g x y
   -> Assign k y c
@@ -216,23 +216,27 @@ uagMapAllGatherEachFold :: (Monoid gt, Traversable g)
 uagMapAllGatherEachFold g u a =
   let (Unpack unpack) = u
       (Assign assign) = a
-  in FL.premap (foldInto g . fmap assign . unpack) FL.mconcat
+  in  FL.premap (foldInto g . fmap assign . unpack) FL.mconcat
 {-# INLINABLE uagMapAllGatherEachFold #-}
 
-uagMapEachFoldM :: (Monad m, Monoid (g y), Traversable g)
+-- | Do the map step by unpacking to a monoid, merge those monoids via mappend, then do the assigning and grouping 
+uagMapEachFoldM
+  :: (Monad m, Monoid (g y), Traversable g)
   => Gatherer ec gt k c d
   -> UnpackM m g x y
   -> AssignM m k y c
   -> FL.FoldM m x gt
 uagMapEachFoldM g u a =
   let (UnpackM unpackM) = u
-      (AssignM assignM) = a      
-  in FL.premapM unpackM
-     $ postMapM (fmap (foldInto g) . traverse assignM)
-     $ FL.generalize FL.mconcat
-{-# INLINABLE uagMapEachFoldM #-}     
+      (AssignM assignM) = a
+  in  FL.premapM unpackM
+      $ postMapM (fmap (foldInto g) . traverse assignM)
+      $ FL.generalize FL.mconcat
+{-# INLINABLE uagMapEachFoldM #-}
 
-uagMapAllGatherOnceFoldM :: (Monad m, Monoid (g (k, c)), Traversable g)
+-- | Do the map step by unpacking, assigning such that the unpacked and assigned items are monoidal, merge those via mappend then do the grouping   
+uagMapAllGatherOnceFoldM
+  :: (Monad m, Monoid (g (k, c)), Traversable g)
   => Gatherer ec gt k c d
   -> UnpackM m g x y
   -> AssignM m k y c
@@ -240,12 +244,14 @@ uagMapAllGatherOnceFoldM :: (Monad m, Monoid (g (k, c)), Traversable g)
 uagMapAllGatherOnceFoldM g u a =
   let (UnpackM unpackM) = u
       (AssignM assignM) = a
-  in FL.premapM ((traverse assignM =<<) . unpackM)
-     $ fmap (foldInto g)
-     $ FL.generalize FL.mconcat
-{-# INLINABLE uagMapAllGatherOnceFoldM #-}     
+  in  FL.premapM ((traverse assignM =<<) . unpackM)
+      $ fmap (foldInto g)
+      $ FL.generalize FL.mconcat
+{-# INLINABLE uagMapAllGatherOnceFoldM #-}
 
-uagMapAllGatherEachFoldM :: (Monad m, Monoid gt, Traversable g)
+-- | Do the map step by unpacking, assigning then gathering to a monoid in each key.  This one is the most general since (g a) need not be a monoid
+uagMapAllGatherEachFoldM
+  :: (Monad m, Monoid gt, Traversable g)
   => Gatherer ec gt k c d
   -> UnpackM m g x y
   -> AssignM m k y c
@@ -253,9 +259,9 @@ uagMapAllGatherEachFoldM :: (Monad m, Monoid gt, Traversable g)
 uagMapAllGatherEachFoldM g u a =
   let (UnpackM unpackM) = u
       (AssignM assignM) = a
-  in FL.premapM (fmap (foldInto g) . (traverse assignM =<<) . unpackM)
-     $ FL.generalize FL.mconcat
-{-# INLINABLE uagMapAllGatherEachFoldM #-}     
+  in  FL.premapM (fmap (foldInto g) . (traverse assignM =<<) . unpackM)
+        $ FL.generalize FL.mconcat
+{-# INLINABLE uagMapAllGatherEachFoldM #-}
 -- NB:  (\f -> (traverse f =<<)) :: (Traversable t, Applicative m) => (a -> m b) -> m (t a) -> m (t b) 
 -- that is, (traverse f =<<) = join . fmap (traverse f). Not sure I prefer the former.  But hlint does...
 
@@ -267,7 +273,7 @@ data Reduce k h x e where
   Reduce :: (k -> h x -> e) -> Reduce k h x e
   ReduceFold :: Foldable h => (k -> FL.Fold x e) -> Reduce k h x e
 
-data ReduceM m k h x e where  
+data ReduceM m k h x e where
   ReduceM :: Monad m => (k -> h x -> m e) -> ReduceM m k h x e
   ReduceFoldM :: (Monad m, Foldable h) => (k -> FL.FoldM m x e) -> ReduceM m k h x e
 
@@ -275,7 +281,7 @@ instance Functor (Reduce k h x) where
   fmap f (Reduce g) = Reduce $ \k -> f . g k
   fmap f (ReduceFold g) = ReduceFold $ \k -> fmap f (g k)
   {-# INLINABLE fmap #-}
-  
+
 instance Functor (ReduceM m k h x) where
   fmap f (ReduceM g) = ReduceM $ \k -> fmap f . g k
   fmap f (ReduceFoldM g) = ReduceFoldM $ \k -> fmap f (g k)
@@ -285,7 +291,7 @@ instance Functor h => P.Profunctor (Reduce k h) where
   dimap l r (Reduce g)  = Reduce $ \k -> P.dimap (fmap l) r (g k)
   dimap l r (ReduceFold g) = ReduceFold $ \k -> P.dimap l r (g k)
   {-# INLINABLE dimap #-}
-  
+
 instance Functor h => P.Profunctor (ReduceM m k h) where
   dimap l r (ReduceM g)  = ReduceM $ \k -> P.dimap (fmap l) (fmap r) (g k)
   dimap l r (ReduceFoldM g) = ReduceFoldM $ \k -> P.dimap l r (g k)
@@ -311,48 +317,54 @@ instance Monad m => Applicative (ReduceM m k h x) where
 
 -- | Make a non-monadic reduce monadic.  Used to match types in the final fold when the unpack step is monadic
 -- but reduce is not.
-generalizeReduce
-  :: Monad m => Reduce k h x e -> ReduceM m k h x e
+generalizeReduce :: Monad m => Reduce k h x e -> ReduceM m k h x e
 generalizeReduce (Reduce     f) = ReduceM $ \k -> return . f k
 generalizeReduce (ReduceFold f) = ReduceFoldM $ FL.generalize . f
 {-# INLINABLE generalizeReduce #-}
 
-mapReduceFold :: ( Monoid e
-                 , ec e
-                 , Foldable h
-                 , Monoid gt
-                 , Traversable g)
-  => (Gatherer ec gt k c (h z) -> Unpack g x y -> Assign k y c -> FL.Fold x gt)
-  -> Gatherer ec gt k c (h z) 
+-- | put all the steps together with a gatherer to make the map-reduce fold
+mapReduceFold
+  :: (Monoid e, ec e, Foldable h, Monoid gt, Traversable g)
+  => (  Gatherer ec gt k c (h z)
+     -> Unpack g x y
+     -> Assign k y c
+     -> FL.Fold x gt
+     )
+  -> Gatherer ec gt k c (h z)
   -> Unpack g x y
   -> Assign k y c
   -> Reduce k h z e
   -> FL.Fold x e
-mapReduceFold gatherStrategy gatherer unpack assign reduce =
-  fmap (gFoldMapWithKey gatherer reducer) mapFold where
+mapReduceFold gatherStrategy gatherer unpack assign reduce = fmap
+  (gFoldMapWithKey gatherer reducer)
+  mapFold
+ where
   mapFold = gatherStrategy gatherer unpack assign
   reducer = case reduce of
-    Reduce f -> f
+    Reduce     f -> f
     ReduceFold f -> (\k hx -> FL.fold (f k) hx)
 {-# INLINABLE mapReduceFold #-}
 
-mapReduceFoldM :: ( Monad m
-                  , Monoid e
-                  , ec e
-                  , Foldable h
-                  , Monoid gt
-                  , Traversable g)
-  => (Gatherer ec gt k c (h z) -> UnpackM m g x y -> AssignM m k y c -> FL.FoldM m x gt)
-  -> Gatherer ec gt k c (h z) 
+-- | put all the (monadic) steps together with a gatherer to make the map-reduce fold
+mapReduceFoldM
+  :: (Monad m, Monoid e, ec e, Foldable h, Monoid gt, Traversable g)
+  => (  Gatherer ec gt k c (h z)
+     -> UnpackM m g x y
+     -> AssignM m k y c
+     -> FL.FoldM m x gt
+     )
+  -> Gatherer ec gt k c (h z)
   -> UnpackM m g x y
   -> AssignM m k y c
   -> ReduceM m k h z e
   -> FL.FoldM m x e
-mapReduceFoldM gatherStrategyM gatherer unpackM assignM reduceM =
-  postMapM (gFoldMapWithKeyM gatherer reducerM) mapFoldM where
+mapReduceFoldM gatherStrategyM gatherer unpackM assignM reduceM = postMapM
+  (gFoldMapWithKeyM gatherer reducerM)
+  mapFoldM
+ where
   mapFoldM = gatherStrategyM gatherer unpackM assignM
   reducerM = case reduceM of
-    ReduceM f -> f
+    ReduceM     f -> f
     ReduceFoldM f -> (\k hx -> FL.foldM (f k) hx)
 {-# INLINABLE mapReduceFoldM #-}
 
