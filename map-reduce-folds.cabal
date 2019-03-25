@@ -25,6 +25,7 @@ library
   import: deps
   ghc-options: -Wall -O2 -funbox-strict-fields
   exposed-modules: Control.MapReduce
+--                 , Control.MapReduce.TypeLevel
                  , Control.MapReduce.Core
                  , Control.MapReduce.Gatherer
                  , Control.MapReduce.Simple
