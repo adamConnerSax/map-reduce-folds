@@ -29,11 +29,15 @@ module Control.MapReduce.Simple
   , foldAndRelabelM
   -- * reduce transformers 
   , reduceMapWithKey
+  , reduceMMapWithKey
   -- * simplified map-reduce folds
   -- ** serial
-  , mapReduceFold
+  , simpleMapReduceFold
+  , simpleMapReduceFoldM
   , basicListFold
+  , basicListFoldM
   , unpackOnlyFold
+  , unpackOnlyFoldM
   -- ** parallel (non-mondaic folds only)
   , parBasicListHashableFold
   , parBasicListOrdFold
@@ -54,46 +58,50 @@ import           Data.Kind                      ( Type
                                                 , Constraint
                                                 )
 
-noUnpack :: MR.Unpack 'Nothing Identity x x
+noUnpack :: MR.Unpack Identity x x
 noUnpack = MR.Unpack Identity
 {-# INLINABLE noUnpack #-}
 
-simpleUnpack :: (x -> y) -> MR.Unpack 'Nothing Identity x y
+simpleUnpack :: (x -> y) -> MR.Unpack Identity x y
 simpleUnpack f = MR.Unpack $ Identity . f
 {-# INLINABLE simpleUnpack #-}
 
-filterUnpack :: (x -> Bool) -> MR.Unpack 'Nothing Maybe x x
+filterUnpack :: (x -> Bool) -> MR.Unpack Maybe x x
 filterUnpack t = MR.Unpack $ \x -> if t x then Just x else Nothing
 {-# INLINABLE filterUnpack #-}
 
-assign :: forall k y c . (y -> k) -> (y -> c) -> MR.Assign 'Nothing k y c
+assign :: forall k y c . (y -> k) -> (y -> c) -> MR.Assign k y c
 assign getKey getCols = MR.Assign (\y -> (getKey y, getCols y))
 {-# INLINABLE assign #-}
 
-reduceMapWithKey
-  :: (k -> y -> z) -> MR.Reduce mm k h x y -> MR.Reduce mm k h x z
+reduceMapWithKey :: (k -> y -> z) -> MR.Reduce k h x y -> MR.Reduce k h x z
 reduceMapWithKey f r = case r of
-  MR.Reduce      g  -> MR.Reduce $ \k hx -> f k (g k hx)
-  MR.ReduceFold  gf -> MR.ReduceFold $ \k -> fmap (f k) (gf k)
+  MR.Reduce     g  -> MR.Reduce $ \k hx -> f k (g k hx)
+  MR.ReduceFold gf -> MR.ReduceFold $ \k -> fmap (f k) (gf k)
+{-# INLINABLE reduceMapWithKey #-}
+
+reduceMMapWithKey
+  :: (k -> y -> z) -> MR.ReduceM m k h x y -> MR.ReduceM m k h x z
+reduceMMapWithKey f r = case r of
   MR.ReduceM     g  -> MR.ReduceM $ \k hx -> fmap (f k) (g k hx)
   MR.ReduceFoldM gf -> MR.ReduceFoldM $ \k -> fmap (f k) (gf k)
-{-# INLINABLE reduceMapWithKey #-}
+{-# INLINABLE reduceMMapWithKey #-}
 
 -- | The most common case is that the reduction doesn't depend on the key
 -- So we add support functions for processing the data and then relabeling with the key
 -- And we do this for the four variations of Reduce
-processAndRelabel :: (h x -> y) -> (k -> y -> z) -> MR.Reduce 'Nothing k h x z
+processAndRelabel :: (h x -> y) -> (k -> y -> z) -> MR.Reduce k h x z
 processAndRelabel process relabel = MR.Reduce $ \k hx -> relabel k (process hx)
 {-# INLINABLE processAndRelabel #-}
 
 processAndRelabelM
-  :: Monad m => (h x -> m y) -> (k -> y -> z) -> MR.Reduce ( 'Just m) k h x z
+  :: Monad m => (h x -> m y) -> (k -> y -> z) -> MR.ReduceM m k h x z
 processAndRelabelM processM relabel =
   MR.ReduceM $ \k hx -> fmap (relabel k) (processM hx)
 {-# INLINABLE processAndRelabelM #-}
 
 foldAndRelabel
-  :: Foldable h => FL.Fold x y -> (k -> y -> z) -> MR.Reduce 'Nothing k h x z
+  :: Foldable h => FL.Fold x y -> (k -> y -> z) -> MR.Reduce k h x z
 foldAndRelabel fld relabel = MR.ReduceFold $ \k -> fmap (relabel k) fld
 {-# INLINABLE foldAndRelabel #-}
 
@@ -101,7 +109,7 @@ foldAndRelabelM
   :: (Monad m, Foldable h)
   => FL.FoldM m x y
   -> (k -> y -> z)
-  -> MR.Reduce ( 'Just m) k h x z
+  -> MR.ReduceM m k h x z
 foldAndRelabelM fld relabel = MR.ReduceFoldM $ \k -> fmap (relabel k) fld
 {-# INLINABLE foldAndRelabelM #-}
 
@@ -116,62 +124,75 @@ instance (Hashable k, Eq k, Semigroup d) => DefaultGatherer Hashable k y d where
 
 -- | Basic mapReduce fold.  Assumes monomorphic monadic parameter (all 'Nothing or all ('Just m) for some Monad m),
 -- and fixed to mapAllGatherEach as mapping step because it is the most general, requiring only Traversable g. 
-mapReduceFold
-  :: ( Monoid e
-     , ec e
-     , Foldable h
-     , Monoid gt
-     , Functor (MR.MapFoldT mm x)
-     , Traversable g
-     , MR.UAGMapFolds mm
-     , MR.MapReduceF mm
-     )
+simpleMapReduceFold
+  :: (Monoid e, ec e, Foldable h, Monoid gt, Traversable g)
   => MR.Gatherer ec gt k c (h c)
-  -> MR.Unpack mm g x y
-  -> MR.Assign mm k y c
-  -> MR.Reduce mm k h c e
-  -> MR.MapFoldT mm x e
-mapReduceFold gatherer unpacker assigner reducer = MR.mapReduceF
+  -> MR.Unpack g x y
+  -> MR.Assign k y c
+  -> MR.Reduce k h c e
+  -> FL.Fold x e
+simpleMapReduceFold gatherer unpacker assigner reducer =
+  MR.mapReduceFold MR.uagMapAllGatherEachFold gatherer unpacker assigner reducer
+{-# INLINABLE simpleMapReduceFold #-}
+
+simpleMapReduceFoldM
+  :: (Monad m, Monoid e, ec e, Foldable h, Monoid gt, Traversable g)
+  => MR.Gatherer ec gt k c (h c)
+  -> MR.UnpackM m g x y
+  -> MR.AssignM m k y c
+  -> MR.ReduceM m k h c e
+  -> FL.FoldM m x e
+simpleMapReduceFoldM gatherer unpacker assigner reducer = MR.mapReduceFoldM
+  MR.uagMapAllGatherEachFoldM
   gatherer
-  (MR.mapAllGatherEachF gatherer unpacker assigner)
+  unpacker
+  assigner
   reducer
-{-# INLINABLE mapReduceFold #-}
+{-# INLINABLE simpleMapReduceFoldM #-}
 
 basicListFold
-  :: forall kc k y c mm x e g
-   . ( DefaultGatherer kc k c [c]
-     , Monoid e
-     , Functor (MR.MapFoldT mm x)
-     , Traversable g
-     , MR.UAGMapFolds mm
-     , MR.MapReduceF mm
-     , kc k
-     )
-  => MR.Unpack mm g x y
-  -> MR.Assign mm k y c
-  -> MR.Reduce mm k [] c e
-  -> MR.MapFoldT mm x e
-basicListFold = mapReduceFold (defaultGatherer @kc (pure @[]))
+  :: forall kc k y c x e g
+   . (DefaultGatherer kc k c [c], Monoid e, Traversable g, kc k)
+  => MR.Unpack g x y
+  -> MR.Assign k y c
+  -> MR.Reduce k [] c e
+  -> FL.Fold x e
+basicListFold = simpleMapReduceFold (defaultGatherer @kc (pure @[]))
 {-# INLINABLE basicListFold #-}
 
+basicListFoldM
+  :: forall kc k m y c x e g
+   . (Monad m, DefaultGatherer kc k c [c], Monoid e, Traversable g, kc k)
+  => MR.UnpackM m g x y
+  -> MR.AssignM m k y c
+  -> MR.ReduceM m k [] c e
+  -> FL.FoldM m x e
+basicListFoldM = simpleMapReduceFoldM (defaultGatherer @kc (pure @[]))
+{-# INLINABLE basicListFoldM #-}
+
+
 unpackOnlyFold
-  :: forall h mm g x y
-   . ( Applicative h
-     , Monoid (h y)
-     , Traversable g
-     , Foldable h
-     , Functor (MR.MapFoldT mm x)
-     , MR.MapReduceF mm
-     , MR.UAGMapFolds mm
-     , MR.IdStep mm
-     )
-  => MR.Unpack mm g x y
-  -> MR.MapFoldT mm x (h y)
-unpackOnlyFold unpack = mapReduceFold (MR.defaultOrdGatherer (pure @h))
-                                      unpack
-                                      MR.idAssigner
-                                      MR.idReducer
+  :: forall h g x y
+   . (Applicative h, Monoid (h y), Traversable g, Foldable h)
+  => MR.Unpack g x y
+  -> FL.Fold x (h y)
+unpackOnlyFold unpack = simpleMapReduceFold (MR.defaultOrdGatherer (pure @h))
+                                            unpack
+                                            (MR.Assign $ \y -> ((), y))
+                                            (MR.Reduce $ const id) -- should this be a fold?
 {-# INLINABLE unpackOnlyFold #-}
+
+unpackOnlyFoldM
+  :: forall h m g x y
+   . (Monad m, Applicative h, Monoid (h y), Traversable g, Foldable h)
+  => MR.UnpackM m g x y
+  -> FL.FoldM m x (h y)
+unpackOnlyFoldM unpack = simpleMapReduceFoldM
+  (MR.defaultOrdGatherer (pure @h))
+  unpack
+  (MR.AssignM $ \y -> return ((), y))
+  (MR.ReduceM $ \_ -> return . id) -- should this be a fold?
+{-# INLINABLE unpackOnlyFoldM #-}
 
 parBasicListHashableFold
   :: forall k g y c x e
@@ -179,21 +200,25 @@ parBasicListHashableFold
      , MRP.NFData e -- for the parallel reduce     
      , MRP.NFData k -- for the parallel assign
      , MRP.NFData c -- for the parallel assign
-     , Functor (MR.MapFoldT 'Nothing x)
      , Traversable g
      , Hashable k
      , Eq k
      )
   => Int -- items per spark for folding and mapping
   -> Int -- number of sparks for reducing
-  -> MR.Unpack 'Nothing g x y
-  -> MR.Assign 'Nothing k y c
-  -> MR.Reduce 'Nothing k [] c e
-  -> MR.MapFoldT 'Nothing x e
+  -> MR.Unpack g x y
+  -> MR.Assign k y c
+  -> MR.Reduce k [] c e
+  -> FL.Fold x e
 parBasicListHashableFold oneSparkMax numThreads u a r =
-  let g                        = MRP.parReduceGathererHashableL (pure @[])
-      (MR.MapGather _ mapStep) = MR.uagMapAllGatherEachFold g u a
-  in  MRP.parallelMapReduceF oneSparkMax numThreads g mapStep r
+  let g = MRP.parReduceGathererHashableL (pure @[])
+  in  MRP.parallelMapReduceFold oneSparkMax
+                                numThreads
+                                MR.uagMapAllGatherEachFold
+                                g
+                                u
+                                a
+                                r
 {-# INLINABLE parBasicListHashableFold #-}
 
 parBasicListOrdFold
@@ -202,18 +227,22 @@ parBasicListOrdFold
      , MRP.NFData e -- for the parallel reduce     
      , MRP.NFData k -- for the parallel assign
      , MRP.NFData c -- for the parallel assign
-     , Functor (MR.MapFoldT 'Nothing x)
      , Traversable g
      , Ord k
      )
   => Int -- items per spark for folding and mapping
   -> Int -- number of sparks for reducing
-  -> MR.Unpack 'Nothing g x y
-  -> MR.Assign 'Nothing k y c
-  -> MR.Reduce 'Nothing k [] c e
-  -> MR.MapFoldT 'Nothing x e
+  -> MR.Unpack g x y
+  -> MR.Assign k y c
+  -> MR.Reduce k [] c e
+  -> FL.Fold x e
 parBasicListOrdFold oneSparkMax numThreads u a r =
-  let g                        = MRP.parReduceGathererOrd (pure @[])
-      (MR.MapGather _ mapStep) = MR.uagMapAllGatherEachFold g u a
-  in  MRP.parallelMapReduceF oneSparkMax numThreads g mapStep r
+  let g = MRP.parReduceGathererOrd (pure @[])
+  in  MRP.parallelMapReduceFold oneSparkMax
+                                numThreads
+                                MR.uagMapAllGatherEachFold
+                                g
+                                u
+                                a
+                                r
 {-# INLINABLE parBasicListOrdFold #-}

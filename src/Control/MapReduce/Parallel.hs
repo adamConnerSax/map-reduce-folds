@@ -14,7 +14,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 module Control.MapReduce.Parallel
-  ( parallelMapReduceF
+  ( parallelMapReduceFold
   , defaultParReduceGatherer
   , parReduceGathererOrd
   , parReduceGathererHashableL
@@ -55,34 +55,35 @@ defaultParReduceGatherer
 defaultParReduceGatherer = parReduceGathererHashableL
 
 
-parallelMapReduceF
-  :: forall h x gt k y z ce e
-   . ( Monoid e
-     , ce e
-     , PS.NFData gt
-     , Functor (MR.MapFoldT 'Nothing x)
-     , Foldable h
-     , Monoid gt
-     )
+parallelMapReduceFold
+  :: forall g c h x gt k y z ce e
+   . (Monoid e, ce e, PS.NFData gt, Foldable h, Monoid gt)
   => Int -- 1000 seems optimal on my current machine
   -> Int
-  -> MR.Gatherer ce gt k y (h z)
-  -> MR.MapStep 'Nothing x gt
-  -> MR.Reduce 'Nothing k h z e
-  -> MR.MapFoldT 'Nothing x e
-parallelMapReduceF oneSparkMax numThreads gatherer mapStep reduceStep =
-  let
-    chunkedF :: FL.Fold x [[x]] = fmap (L.divvy numThreads numThreads) FL.list -- list divvied into n sublists
-    mappedF :: FL.Fold x [gt] =
-      fmap (parMapEach (FL.fold (MR.mapFold mapStep))) chunkedF -- list of n gt
-    mergedF :: FL.Fold x gt = fmap (parFoldMonoid oneSparkMax) mappedF
-    reducedF                = case reduceStep of
-      MR.Reduce f -> fmap (MR.gFoldMapWithKey gatherer f) mergedF
-      MR.ReduceFold f ->
-        fmap (MR.gFoldMapWithKey gatherer (\k hx -> FL.fold (f k) hx)) mergedF
-  in
-    reducedF
-{-# INLINABLE parallelMapReduceF #-}
+  -> (  MR.Gatherer ce gt k c (h z)
+     -> MR.Unpack g x y
+     -> MR.Assign k y c
+     -> FL.Fold x gt
+     )
+  -> MR.Gatherer ce gt k c (h z)
+  -> MR.Unpack g x y
+  -> MR.Assign k y c
+  -> MR.Reduce k h z e
+  -> FL.Fold x e
+parallelMapReduceFold oneSparkMax numThreads gatherStrat gatherer unpack assign reduce
+  = let
+      mapFold = gatherStrat gatherer unpack assign
+      chunkedF :: FL.Fold x [[x]] =
+        fmap (L.divvy numThreads numThreads) FL.list -- list divvied into n sublists
+      mappedF :: FL.Fold x [gt] = fmap (parMapEach (FL.fold mapFold)) chunkedF -- list of n gt
+      mergedF :: FL.Fold x gt   = fmap (parFoldMonoid oneSparkMax) mappedF
+      reducedF                  = case reduce of
+        MR.Reduce f -> fmap (MR.gFoldMapWithKey gatherer f) mergedF
+        MR.ReduceFold f ->
+          fmap (MR.gFoldMapWithKey gatherer (\k hx -> FL.fold (f k) hx)) mergedF
+    in
+      reducedF
+{-# INLINABLE parallelMapReduceFold #-}
 
 
 parMapEach :: PS.NFData b => (a -> b) -> [a] -> [b]
