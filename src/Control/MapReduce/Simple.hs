@@ -104,7 +104,6 @@ processAndRelabelM
   :: Monad m => (h x -> m y) -> (k -> y -> z) -> MR.ReduceM m k h x z
 processAndRelabelM processM relabel =
   let q !k !hx = fmap (relabel k) (processM hx) in MR.ReduceM q
---  MR.ReduceM $ \k hx -> fmap (relabel k) (processM hx)
 {-# INLINABLE processAndRelabelM #-}
 
 foldAndRelabel

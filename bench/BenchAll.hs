@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 import           Criterion.Main
 import           Criterion
 import           Control.MapReduce             as MR
@@ -33,21 +34,7 @@ direct =
     . L.filter filterPF
     . F.toList
 
--- this should be pretty close to what the mapreduce code will do
--- in particular, do all unpacking and assigning, then make a sequence of the result and then group that.
-copySteps :: (Functor g, Foldable g) => g (Char, Int) -> [(Char, Double)]
-copySteps =
-  HM.foldrWithKey (\k m l -> (k, m) : l) []
-    . fmap (FL.fold reducePFold)
-    . HM.fromListWith (<>)
-    . F.toList
-    . fmap (second $ pure @[])
-    . F.fold
-    . fmap (Seq.fromList . F.toList . fmap assignPF)
-    . fmap (\x -> if filterPF x then Just x else Nothing) --L.filter filterF
-
-
--- the default map-reduce
+-- the default map-reduce, using a HashMap as the gatherer since the key is hashable
 mapAllGatherEach :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapAllGatherEach = FL.fold
   (MR.basicListFold @Hashable
@@ -67,15 +54,28 @@ mapAllGatherEachP = FL.fold
     (MR.foldAndRelabel reducePFold (\k m -> [(k, m)]))
   )
 
+-- this should be pretty close to what the (serial) mapreduce code will do
+-- in particular, do all unpacking and assigning, then make a sequence of the result and then group that.
+copySteps :: (Functor g, Foldable g) => g (Char, Int) -> [(Char, Double)]
+copySteps =
+  HM.foldrWithKey (\k m l -> (k, m) : l) []
+    . fmap (FL.fold reducePFold)
+    . HM.fromListWith (<>)
+    . F.toList
+    . fmap (second $ pure @[])
+    . F.fold
+    . fmap (Seq.fromList . F.toList . fmap assignPF)
+    . fmap (\x -> if filterPF x then Just x else Nothing) --L.filter filterF
 
 
-g = MR.defaultHashableGatherer (pure @Seq)
-
+-- for use in the below versions which move away from the default settings
+-- this is the same as the default gatherer, using a hashmap and gathering the data into a list while grouping and before reducing
+g = MR.defaultHashableGatherer (pure @[])
 
 -- try the variations on unpack, assign and fold order
 -- for all but mapAllGatherEach, we need unpack to unpack to a monoid
 monoidUnpackF =
-  MR.Unpack $ \x -> if filterPF x then Seq.singleton x else Seq.empty
+  let f !x = if filterPF x then Seq.singleton x else Seq.empty in MR.Unpack f
 
 
 mapAllGatherEach2 :: Foldable g => g (Char, Int) -> [(Char, Double)]
@@ -120,7 +120,7 @@ benchOne dat = bgroup
     $ nf mapAllGatherOnce dat
   ]
 
--- a more complex task
+-- a more complex row type
 createMapRows :: Int -> Seq.Seq (M.Map T.Text Int)
 createMapRows n =
   let makeRow k = if even k
@@ -128,10 +128,7 @@ createMapRows n =
         else M.fromList [("A", k), ("B", k `mod` 47)]
   in  Seq.unfoldr (\m -> if m > n then Nothing else Just (makeRow m, m + 1)) 0
 
--- unpack: if A and B and C are present, unpack to (A,B,C)
--- group by the value of "C"
--- compute the average of the sum of the values in A and B for each group
--- return Map Int Int with (C, <A+B>)
+-- unpack: if A and B and C are present, unpack to Just (A,B,C), otherwise Nothing
 unpackMF :: M.Map T.Text Int -> Maybe (Int, Int, Int)
 unpackMF m = do
   a <- M.lookup "A" m
@@ -139,12 +136,15 @@ unpackMF m = do
   c <- M.lookup "C" m
   return (a, b, c)
 
+-- group by the value of "C"
 assignMF :: (Int, Int, Int) -> (Int, (Int, Int))
 assignMF (a, b, c) = (c, (a, b))
 
+-- compute the average of the sum of the values in A and B for each group
 reduceMFold :: FL.Fold (Int, Int) Double
-reduceMFold = FL.premap (\(x, y) -> realToFrac $ x + y) FL.mean
+reduceMFold = let g (x, y) = realToFrac (x + y) in FL.premap g FL.mean
 
+-- return [(C, <A+B>)]
 
 directM :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 directM =
@@ -174,16 +174,12 @@ basicListP = FL.fold
     (MR.foldAndRelabel reduceMFold (\k x -> [(k, x)]))
   )
 
-
-
 benchTwo dat = bgroup
   "Task 2, on Map Text Int "
   [ bench "direct" $ nf directM dat
   , bench "map-reduce-fold (basicList)" $ nf basicList dat
   , bench "map-reduce-fold (basicList, parallel)" $ nf basicListP dat
   ]
-
-
 
 main :: IO ()
 main = defaultMain
