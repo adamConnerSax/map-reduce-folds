@@ -13,12 +13,35 @@
 {-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
+{-|
+Module      : Control.MapReduce.Parallel
+Description : Gatherer code for map-reduce-folds
+Copyright   : (c) Adam Conner-Sax 2019
+License     : BSD-3-Clause
+Maintainer  : adam_conner_sax@yahoo.com
+Stability   : experimental
+
+Some basic attempts at parallel map-reduce folds.  There are multiple places we can do things in parallel.
+
+(1) We can map (unpack/assign) in parallel.
+(2) We can reduce in parallel.
+(3) We can fold our intermediate monoid (in the gatherer) in parallel
+(4) We can fold our result monoid in parallel
+
+So far these are sometimes faster and sometimes slower than their serial counterparts.  So there is much room
+for improvement, I think.
+-}
 module Control.MapReduce.Parallel
-  ( parallelMapReduceFold
+  (
+    -- * A basic parallel mapReduceFold
+    parallelMapReduceFold
+    -- ** a default parallel Gatherer
   , defaultParReduceGatherer
+    -- * more parallel gatherers
   , parReduceGathererOrd
   , parReduceGathererHashableL
   , parReduceGathererHashableS
+  -- * parallel monoid folds
   , parFoldMonoid
   , parFoldMonoidDC
   -- * re-exports
@@ -46,20 +69,24 @@ import qualified Control.Parallel.Strategies   as PS
 import           Control.Parallel.Strategies    ( NFData ) -- for re-export
 --
 
--- | You can use this in the reguler mapReduce call and it will do parallel reduce.  To get parallelism in the map stage as well,
--- use the parallelMapReduce below.  
+-- | You can use this in the reguler mapReduce call and it will do parallel reduce.
+-- To get parallelism in the map stage as well,
+-- use this gatherer in parallelMapReduceFold below.  
 defaultParReduceGatherer
   :: (Semigroup d, Hashable k, Eq k)
   => (c -> d)
   -> MR.Gatherer PS.NFData (Seq.Seq (k, c)) k c d
 defaultParReduceGatherer = parReduceGathererHashableL
 
-
+-- | Parallel map-reduce-fold.  Uses the given parameters to use multiple sparks when mapping, folding and reducing.
+-- Chunks the input to numThreads chunks and sparks each chunk for mapping, merges the results using a parallel mconcat
+-- which divides the input into chunks of size oneSparkMax, mconcats them and then repeats until all are merged.
+-- Given a parallel gatherer, this will reduce in parallel as well.
 parallelMapReduceFold
   :: forall g c h x gt k y z ce e
    . (Monoid e, ce e, PS.NFData gt, Foldable h, Monoid gt)
-  => Int -- 1000 seems optimal on my current machine
-  -> Int
+  => Int -- ^ One Spark Maximum.  Determines chunksize for mconcat
+  -> Int -- ^ numThreads.  Determines chunkSize for mapping.
   -> (  MR.Gatherer ce gt k c (h z)
      -> MR.Unpack g x y
      -> MR.Assign k y c
@@ -104,7 +131,7 @@ parReduceGathererOrd'
   -> (c -> d)
   -> MR.Gatherer PS.NFData (Seq.Seq (k, c)) k c d
 parReduceGathererOrd' foldMonoid = MR.sequenceGatherer
-  (MS.fromListWith (<>))
+  (MS.fromListWith (<>) . F.toList)
   (\f -> foldMonoid . parMapEach (uncurry f) . MS.toList)
   (\f -> fmap (PS.withStrategy (PS.parTraversable PS.rdeepseq)) -- deepseq each one in ||
     . MS.traverseWithKey f
@@ -125,7 +152,7 @@ parReduceGathererHashableS'
   -> (c -> d)
   -> MR.Gatherer PS.NFData (Seq.Seq (k, c)) k c d
 parReduceGathererHashableS' foldMonoid = MR.sequenceGatherer
-  (HMS.fromListWith (<>))
+  (HMS.fromListWith (<>) . F.toList)
   (\doOne -> foldMonoid . parMapChunk 1000 (uncurry doOne) . HMS.toList)
   (\doOneM -> fmap (PS.withStrategy (PS.parTraversable PS.rdeepseq)) -- deepseq each one in ||
     . HMS.traverseWithKey doOneM
@@ -146,7 +173,7 @@ parReduceGathererHashableL'
   -> (c -> d)
   -> MR.Gatherer PS.NFData (Seq.Seq (k, c)) k c d
 parReduceGathererHashableL' foldMonoid = MR.sequenceGatherer
-  (HML.fromListWith (<>))
+  (HML.fromListWith (<>) . F.toList)
   (\doOne -> foldMonoid . parMapChunk 1000 (uncurry doOne) . HML.toList)
   (\doOneM -> fmap (PS.withStrategy (PS.parTraversable PS.rdeepseq)) -- deepseq each one in ||
     . HML.traverseWithKey doOneM
