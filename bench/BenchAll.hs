@@ -18,12 +18,12 @@ createPairData n =
   let makePair k = (toEnum $ fromEnum 'A' + k `mod` 26, k `mod` 31)
   in  Seq.unfoldr (\m -> if m > n then Nothing else Just (makePair m, m + 1)) 0
 
--- we want to filter on even numbers, then compute the average of the Int for each label
+-- For example, keep only even numbers, then compute the average of the Int for each label.
 filterPF = even . snd
-assignPF = id
+assignPF = id -- this is a function from the "data" to a pair (key, data-to-process). 
 reducePFold = FL.premap realToFrac FL.mean
 
-
+-- the most direct way I can easily think of
 direct :: Foldable g => g (Char, Int) -> [(Char, Double)]
 direct =
   HM.toList
@@ -33,6 +33,8 @@ direct =
     . L.filter filterPF
     . F.toList
 
+-- this should be pretty close to what the mapreduce code will do
+-- in particular, do all unpacking and assigning, then make a sequence of the result and then group that.
 copySteps :: (Functor g, Foldable g) => g (Char, Int) -> [(Char, Double)]
 copySteps =
   HM.foldrWithKey (\k m l -> (k, m) : l) []
@@ -45,7 +47,6 @@ copySteps =
     . fmap (\x -> if filterPF x then Just x else Nothing) --L.filter filterF
 
 
-
 -- the default map-reduce
 mapAllGatherEach :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapAllGatherEach = FL.fold
@@ -55,8 +56,7 @@ mapAllGatherEach = FL.fold
     (MR.foldAndRelabel reducePFold (\k m -> [(k, m)]))
   )
 
-g = MR.defaultHashableGatherer (pure @Seq)
-
+-- use the basic parallel apparatus
 mapAllGatherEachP :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapAllGatherEachP = FL.fold
   (MR.parBasicListHashableFold
@@ -67,9 +67,15 @@ mapAllGatherEachP = FL.fold
     (MR.foldAndRelabel reducePFold (\k m -> [(k, m)]))
   )
 
+
+
+g = MR.defaultHashableGatherer (pure @Seq)
+
+
+-- try the variations on unpack, assign and fold order
+-- for all but mapAllGatherEach, we need unpack to unpack to a monoid
 monoidUnpackF =
   MR.Unpack $ \x -> if filterPF x then Seq.singleton x else Seq.empty
-
 
 
 mapAllGatherEach2 :: Foldable g => g (Char, Int) -> [(Char, Double)]
@@ -99,8 +105,22 @@ mapAllGatherOnce = FL.fold
                     (MR.foldAndRelabel reducePFold (\k m -> [(k, m)]))
   )
 
+benchOne dat = bgroup
+  "Task 1, on (Char, Int) "
+  [ bench "direct" $ nf direct dat
+  , bench "copy steps" $ nf copySteps dat
+  , bench "map-reduce-fold (mapAllGatherEach, filter with Maybe)"
+    $ nf mapAllGatherEach dat
+  , bench "map-reduce-fold (mapAllGatherEach parallel, filter with Maybe)"
+    $ nf mapAllGatherEachP dat
+  , bench "map-reduce-fold (mapAllGatherEach, filter with [])"
+    $ nf mapAllGatherEach2 dat
+  , bench "map-reduce-fold (mapEach, filter with [])" $ nf mapEach dat
+  , bench "map-reduce-fold (mapAllGatherOnce, filter with [])"
+    $ nf mapAllGatherOnce dat
+  ]
 
-
+-- a more complex task
 createMapRows :: Int -> Seq.Seq (M.Map T.Text Int)
 createMapRows n =
   let makeRow k = if even k
@@ -155,25 +175,10 @@ basicListP = FL.fold
   )
 
 
-benchOne dat = bgroup
-  "Task 1, on (Char, Int) "
-  [ bench "direct" $ nf direct dat
-  , bench "copy steps" $ nf copySteps dat
-  , bench "map-reduce-fold (mapAllGatherEach, filter with Maybe)"
-    $ nf mapAllGatherEach dat
-  , bench "map-reduce-fold (mapAllGatherEach parallel, filter with Maybe)"
-    $ nf mapAllGatherEachP dat
-  , bench "map-reduce-fold (mapAllGatherEach, filter with [])"
-    $ nf mapAllGatherEach2 dat
-  , bench "map-reduce-fold (mapEach, filter with [])" $ nf mapEach dat
-  , bench "map-reduce-fold (mapAllGatherOnce, filter with [])"
-    $ nf mapAllGatherOnce dat
-  ]
 
 benchTwo dat = bgroup
   "Task 2, on Map Text Int "
   [ bench "direct" $ nf directM dat
---  , bench "copy steps" $ nf copySteps dat
   , bench "map-reduce-fold (basicList)" $ nf basicList dat
   , bench "map-reduce-fold (basicList, parallel)" $ nf basicListP dat
   ]
