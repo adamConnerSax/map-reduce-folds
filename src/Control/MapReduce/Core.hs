@@ -85,12 +85,18 @@ module Control.MapReduce.Core
   , generalizeUnpack
   , generalizeAssign
   , generalizeReduce
-    -- ** Helper type for constraint specification
+    -- ** Helper type for constraint specification    
   , Empty
+  -- * re-exports
+  , Fold
+  , FoldM
   )
 where
 
 import qualified Control.Foldl                 as FL
+import           Control.Foldl                  ( Fold
+                                                , FoldM
+                                                ) -- for re-exporting
 import           Data.Monoid                    ( Monoid(..) )
 import           Data.Kind                      ( Type
                                                 , Constraint

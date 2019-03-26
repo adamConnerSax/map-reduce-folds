@@ -13,6 +13,7 @@
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE InstanceSigs          #-}
+{-# LANGUAGE BangPatterns          #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 module Control.MapReduce.Simple
   (
@@ -41,10 +42,14 @@ module Control.MapReduce.Simple
   -- ** parallel (non-mondaic folds only)
   , parBasicListHashableFold
   , parBasicListOrdFold
+  -- * re-exports
+  , module Control.MapReduce.Core
+  , Hashable
   )
 where
 
 import qualified Control.MapReduce.Core        as MR
+import           Control.MapReduce.Core -- for re-export.  I don't like the unqualified-ness of this.
 import qualified Control.MapReduce.Gatherer    as MR
 import qualified Control.MapReduce.Parallel    as MRP
 
@@ -67,42 +72,45 @@ simpleUnpack f = MR.Unpack $ Identity . f
 {-# INLINABLE simpleUnpack #-}
 
 filterUnpack :: (x -> Bool) -> MR.Unpack Maybe x x
-filterUnpack t = MR.Unpack $ \x -> if t x then Just x else Nothing
+filterUnpack t = let f !x = if t x then Just x else Nothing in MR.Unpack f
 {-# INLINABLE filterUnpack #-}
 
 assign :: forall k y c . (y -> k) -> (y -> c) -> MR.Assign k y c
-assign getKey getCols = MR.Assign (\y -> (getKey y, getCols y))
+assign getKey getCols = let f !y = (getKey y, getCols y) in MR.Assign f
 {-# INLINABLE assign #-}
 
 reduceMapWithKey :: (k -> y -> z) -> MR.Reduce k h x y -> MR.Reduce k h x z
-reduceMapWithKey f r = case r of
-  MR.Reduce     g  -> MR.Reduce $ \k hx -> f k (g k hx)
-  MR.ReduceFold gf -> MR.ReduceFold $ \k -> fmap (f k) (gf k)
+reduceMapWithKey f !r = case r of
+  MR.Reduce     g  -> let q !k !hx = f k (g k hx) in MR.Reduce q
+  MR.ReduceFold gf -> let q !k = fmap (f k) (gf k) in MR.ReduceFold q
 {-# INLINABLE reduceMapWithKey #-}
 
 reduceMMapWithKey
   :: (k -> y -> z) -> MR.ReduceM m k h x y -> MR.ReduceM m k h x z
 reduceMMapWithKey f r = case r of
-  MR.ReduceM     g  -> MR.ReduceM $ \k hx -> fmap (f k) (g k hx)
-  MR.ReduceFoldM gf -> MR.ReduceFoldM $ \k -> fmap (f k) (gf k)
+  MR.ReduceM     g  -> let q !k !hx = fmap (f k) (g k hx) in MR.ReduceM q
+  MR.ReduceFoldM gf -> let q !k = fmap (f k) (gf k) in MR.ReduceFoldM q
 {-# INLINABLE reduceMMapWithKey #-}
 
 -- | The most common case is that the reduction doesn't depend on the key
 -- So we add support functions for processing the data and then relabeling with the key
 -- And we do this for the four variations of Reduce
 processAndRelabel :: (h x -> y) -> (k -> y -> z) -> MR.Reduce k h x z
-processAndRelabel process relabel = MR.Reduce $ \k hx -> relabel k (process hx)
+processAndRelabel process relabel =
+  let q !k !hx = relabel k (process hx) in MR.Reduce q
 {-# INLINABLE processAndRelabel #-}
 
 processAndRelabelM
   :: Monad m => (h x -> m y) -> (k -> y -> z) -> MR.ReduceM m k h x z
 processAndRelabelM processM relabel =
-  MR.ReduceM $ \k hx -> fmap (relabel k) (processM hx)
+  let q !k !hx = fmap (relabel k) (processM hx) in MR.ReduceM q
+--  MR.ReduceM $ \k hx -> fmap (relabel k) (processM hx)
 {-# INLINABLE processAndRelabelM #-}
 
 foldAndRelabel
   :: Foldable h => FL.Fold x y -> (k -> y -> z) -> MR.Reduce k h x z
-foldAndRelabel fld relabel = MR.ReduceFold $ \k -> fmap (relabel k) fld
+foldAndRelabel fld relabel =
+  let q !k = fmap (relabel k) fld in MR.ReduceFold q
 {-# INLINABLE foldAndRelabel #-}
 
 foldAndRelabelM
@@ -110,7 +118,8 @@ foldAndRelabelM
   => FL.FoldM m x y
   -> (k -> y -> z)
   -> MR.ReduceM m k h x z
-foldAndRelabelM fld relabel = MR.ReduceFoldM $ \k -> fmap (relabel k) fld
+foldAndRelabelM fld relabel =
+  let q !k = fmap (relabel k) fld in MR.ReduceFoldM q
 {-# INLINABLE foldAndRelabelM #-}
 
 class DefaultGatherer (ce :: Type -> Constraint) k y d where

@@ -27,7 +27,9 @@ where
 import qualified Control.MapReduce.Core        as MRC
 
 import qualified Control.Foldl                 as FL
-import           Data.Foldable                  ( fold )
+import           Data.Foldable                  ( fold
+                                                , toList
+                                                )
 import qualified Data.Map.Strict               as MS
 import qualified Data.Map.Strict               as ML
 import qualified Data.HashMap.Lazy             as HML
@@ -57,7 +59,7 @@ defaultOrdGatherer = gathererSeqToStrictMap
 
 
 foldToSequence :: Foldable h => h (k, c) -> Seq.Seq (k, c)
-foldToSequence = FL.fold (FL.Fold (Seq.|>) Seq.empty id)
+foldToSequence = Seq.fromList . toList --FL.fold (FL.Fold (Seq.|>) Seq.empty id)
 {-# INLINABLE foldToSequence #-}
 
 -- fix Seq as the gatherer type, that is the type we use as we unpack and assign but before we group by key
