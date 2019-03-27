@@ -1,28 +1,45 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RankNTypes            #-}
 import           Criterion.Main
 import           Criterion
+
+
 import           Control.MapReduce             as MR
+import           Control.MapReduce.Engines     as MRE
+
 import           Data.Text                     as T
 import           Data.List                     as L
 import           Data.HashMap.Lazy             as HM
 import           Data.Map                      as M
-import           Control.Foldl                 as FL
+import qualified Control.Foldl                 as FL
 import           Control.Arrow                  ( second )
 import           Data.Foldable                 as F
 import           Data.Sequence                 as Seq
 import           Data.Maybe                     ( catMaybes )
 
-createPairData :: Int -> Seq.Seq (Char, Int)
+createPairData :: Int -> [(Char, Int)]
 createPairData n =
   let makePair k = (toEnum $ fromEnum 'A' + k `mod` 26, k `mod` 31)
-  in  Seq.unfoldr (\m -> if m > n then Nothing else Just (makePair m, m + 1)) 0
+  in  L.unfoldr (\m -> if m > n then Nothing else Just (makePair m, m + 1)) 0
 
 -- For example, keep only even numbers, then compute the average of the Int for each label.
 filterPF = even . snd
-assignPF = id -- this is a function from the "data" to a pair (key, data-to-process). 
+assignPF = id -- this is a function from the "data" to a pair (key, data-to-process).
 reducePFold = FL.premap realToFrac FL.mean
+reducePF k hx = (k, FL.fold reducePFold hx)
+{-
+resultF :: [(Char, Double)] -> Double
+resultF = FL.fold FL.sum . fmap snd
+
+wrapper
+  :: (forall g . Foldable g => g (Char, Int) -> [(Char, Double)])
+  -> Seq.Seq (Char, Int)
+  -> Double
+  -> Double
+wrapper f dat mult = mult * resultF (f dat)
+-}
 
 -- the most direct way I can easily think of
 direct :: Foldable g => g (Char, Int) -> [(Char, Double)]
@@ -33,7 +50,80 @@ direct =
     . fmap (second $ pure @[])
     . L.filter filterPF
     . F.toList
+{-# INLINE direct #-}
 
+directFoldl :: Foldable g => g (Char, Int) -> [(Char, Double)]
+directFoldl = FL.fold
+  ((fmap
+     ( HM.toList
+     . fmap (FL.fold reducePFold)
+     . HM.fromListWith (<>)
+     . fmap (second $ pure @[])
+     . L.filter filterPF
+     )
+   )
+    FL.list
+  )
+{-# INLINE directFoldl #-}
+
+directFoldl2 :: Foldable g => g (Char, Int) -> [(Char, Double)]
+directFoldl2 = FL.fold
+  ((fmap
+     ( fmap (uncurry reducePF)
+     . HM.toList
+     . HM.fromListWith (<>)
+     . fmap (second $ pure @[])
+     . L.filter filterPF
+     )
+   )
+    FL.list
+  )
+
+directFoldl3 :: Foldable g => g (Char, Int) -> [(Char, Double)]
+directFoldl3 =
+  fmap (uncurry reducePF)
+    . HM.toList
+    . HM.fromListWith (<>)
+    . fmap (second $ pure @[])
+    . L.filter filterPF
+    . FL.fold FL.list
+
+{-# INLINE directFoldl2 #-}
+{-
+directWithListUnpack :: Foldable g => g (Char, Int) -> [(Char, Double)]
+directWithListUnpack = FL.fold
+  (fmap
+    ( fmap (second (FL.fold reducePFold))
+    . HM.toList
+    . HM.fromListWith (<>)
+    . fmap (second $ pure @[])
+    . mconcat
+    . fmap (F.toList)
+    . fmap (\x -> if filterPF x then [x] else [])
+    )
+    FL.list
+  )
+
+
+directWithMaybeUnpack :: Foldable g => g (Char, Int) -> [(Char, Double)]
+directWithMaybeUnpack =
+  HM.toList
+    . fmap (FL.fold reducePFold)
+    . HM.fromListWith (<>)
+    . fmap (second $ pure @[])
+    . mconcat
+    . fmap (F.toList)
+    . fmap (\x -> if filterPF x then Just x else Nothing)
+    . F.toList
+-}
+mrListEngine :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mrListEngine = FL.fold
+  (MRE.lazyHashMapListEngine
+    (MR.Unpack $ \x -> if filterPF x then [x] else [])
+    (MR.Assign id)
+    (MRE.Reduce reducePF)
+  )
+{-
 -- the default map-reduce, using a HashMap as the gatherer since the key is hashable
 mapAllGatherEach :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapAllGatherEach = FL.fold
@@ -80,9 +170,9 @@ monoidUnpackF =
 
 mapAllGatherEach2 :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapAllGatherEach2 = FL.fold
-  (MR.mapReduceFold MR.uagMapAllGatherEachFold
-                    g
-                    monoidUnpackF
+  (MR.mapReduceFold MR.uagListFold
+                    (MR.gathererListToLazyHashMap (pure @[]))
+                    (MR.filterUnpack filterPF)
                     (MR.Assign assignPF)
                     (MR.foldAndRelabel reducePFold (\k m -> [(k, m)]))
   )
@@ -104,22 +194,21 @@ mapAllGatherOnce = FL.fold
                     (MR.Assign assignPF)
                     (MR.foldAndRelabel reducePFold (\k m -> [(k, m)]))
   )
+-}
 
 benchOne dat = bgroup
   "Task 1, on (Char, Int) "
   [ bench "direct" $ nf direct dat
-  , bench "copy steps" $ nf copySteps dat
+  , bench "directFoldl2" $ nf directFoldl2 dat
+  , bench "directFoldl3" $ nf directFoldl3 dat
+  , bench "ListEngine" $ nf mrListEngine dat
+{-  , bench "directFoldl2" $ nf directFoldl2 dat
+  , bench "directWithListUnpack" $ nf directWithListUnpack dat
+  , bench "directWithMaybeUnpack" $ nf directWithMaybeUnpack dat
   , bench "map-reduce-fold (mapAllGatherEach, filter with Maybe)"
-    $ nf mapAllGatherEach dat
-  , bench "map-reduce-fold (mapAllGatherEach parallel, filter with Maybe)"
-    $ nf mapAllGatherEachP dat
-  , bench "map-reduce-fold (mapAllGatherEach, filter with [])"
-    $ nf mapAllGatherEach2 dat
-  , bench "map-reduce-fold (mapEach, filter with [])" $ nf mapEach dat
-  , bench "map-reduce-fold (mapAllGatherOnce, filter with [])"
-    $ nf mapAllGatherOnce dat
+    $ nf mapAllGatherEach dat -}
   ]
-
+{-
 -- a more complex row type
 createMapRows :: Int -> Seq.Seq (M.Map T.Text Int)
 createMapRows n =
@@ -180,7 +269,8 @@ benchTwo dat = bgroup
   , bench "map-reduce-fold (basicList)" $ nf basicList dat
   , bench "map-reduce-fold (basicList, parallel)" $ nf basicListP dat
   ]
-
+-}
 main :: IO ()
-main = defaultMain
-  [benchOne $ createPairData 100000, benchTwo $ createMapRows 100000]
+main =
+  defaultMain [benchOne $ createPairData 100000 {-, benchTwo $ createMapRows 100000 -}
+                                               ]

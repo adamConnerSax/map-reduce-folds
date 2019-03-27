@@ -46,6 +46,7 @@ module Control.MapReduce.Gatherer
   , gathererSeqToLazyHashMap
   , gathererSeqToStrictMap
   , gathererSeqToLazyMap
+  , gathererListToLazyHashMap
   )
 where
 
@@ -83,10 +84,36 @@ defaultOrdGatherer
 defaultOrdGatherer = gathererSeqToStrictMap
 {-# INLINABLE defaultOrdGatherer #-}
 
+
+buildPairGatherer :: forall h mt k d c ce . (Semigroup d, Foldable h, Functor h)
+  => (forall q. Foldable q => q (k,c) -> h (k,c))                         -- ^ foldable to unsorted storage of (k,c) pairs
+  -> (forall h . (Foldable h, Functor h) => h (k, d) -> mt k d)    -- ^ unsorted storage to grouped type
+  -> (forall e . (Monoid e, ce e) => (k -> d -> e) -> mt k d -> e) -- ^ foldWithKey 
+  -> (  forall e f                                                 -- ^ traverseWithKey
+      .                                                  
+        (Applicative f, Monoid e, ce e)
+     => (k -> d -> f e)
+     -> mt k d
+     -> f (mt k e)
+     )
+  -> (forall e . (Monoid e, ce e) => mt k e -> e) -- ^ foldMap-like function.  This is here as a hook for a parallel fold
+  -> ((c -> d) -> MRC.Gatherer ce (h (k,c)) k c d)
+buildPairGatherer keyedValuesFromFoldable groupFromKeyedValues foldWithKey traverseWithKey foldMonoid toSG =
+  let toGrouped :: h (k,c) -> mt k d
+      toGrouped = groupFromKeyedValues . fmap (second toSG)
+  in MRC.Gatherer
+     keyedValuesFromFoldable
+     (\f !s -> foldWithKey f $ toGrouped s)
+     (\f !s -> fmap foldMonoid . traverseWithKey f $ toGrouped s)
+{-# INLINABLE buildPairGatherer #-}
+      
+
 -- | Helper function for making any foldable into a sequence
 foldToSequence :: Foldable h => h x -> Seq.Seq x
 foldToSequence = Seq.fromList . toList --FL.fold (FL.Fold (Seq.|>) Seq.empty id)
 {-# INLINABLE foldToSequence #-}
+
+
 
 -- TODO: Can I make Discrimination work here?
 -- | Build a Data.Sequence.Seq based gatherer.  This specifies the gathering type but lets the user specify how things are to
@@ -105,13 +132,32 @@ sequenceGatherer
      )
   -> (forall e . (Monoid e, ce e) => mt k e -> e) -- ^ foldMap-like function.  This is here as a hook for a parallel fold
   -> ((c -> d) -> MRC.Gatherer ce (Seq.Seq (k, c)) k c d)
-sequenceGatherer fromKeyedValues foldMapWithKey traverseWithKey foldMonoid toSG
+sequenceGatherer = buildPairGatherer foldToSequence 
+
+listGatherer :: forall mt k d c ce
+                . (Semigroup d, Foldable (mt k))
+  => (forall h . (Foldable h, Functor h) => h (k, d) -> mt k d) -- ^ Seq (k,d) -> Map k d
+  -> (forall e . (Monoid e, ce e) => (k -> d -> e) -> mt k d -> e) -- ^ something like foldWithKey but might depend on map type
+  -> (  forall e f
+      .                                                  -- ^ applicative foldWithKey
+        (Applicative f, Monoid e, ce e)
+     => (k -> d -> f e)
+     -> mt k d
+     -> f (mt k e)
+     )
+  -> (forall e . (Monoid e, ce e) => mt k e -> e) -- ^ foldMap-like function.  This is here as a hook for a parallel fold
+  -> ((c -> d) -> MRC.Gatherer ce [(k,c)] k c d)
+listGatherer = buildPairGatherer toList
+
+{-
+
   = let seqToMap :: Seq.Seq (k, c) -> mt k d
         seqToMap = fromKeyedValues . fmap (second toSG)
     in  MRC.Gatherer
           foldToSequence
           (\f !s -> foldMapWithKey f $ seqToMap s)
           (\f !s -> fmap foldMonoid . traverseWithKey f $ seqToMap s)
+-}
 {-# INLINABLE sequenceGatherer #-}
 
 
@@ -160,6 +206,20 @@ gathererSeqToLazyMap = sequenceGatherer (ML.fromListWith (<>) . toList)
                                         ML.traverseWithKey
                                         fold
 {-# INLINABLE gathererSeqToLazyMap #-}
+
+
+-- | Seq based gatherer using a lazy 'HashMap' underneath
+gathererListToLazyHashMap
+  :: (Monoid d, Hashable k, Eq k)
+  => (c -> d)
+  -> MRC.Gatherer MRC.Empty [(k, c)] k c d
+gathererListToLazyHashMap = listGatherer
+  (HML.fromListWith (<>) . toList)
+  (\f -> HML.foldlWithKey' (\e k d -> e <> f k d) mempty)
+  HML.traverseWithKey
+  fold
+{-# INLINABLE gathererListToLazyHashMap #-}
+
 
 {-
 -- This one is slower.  Why?

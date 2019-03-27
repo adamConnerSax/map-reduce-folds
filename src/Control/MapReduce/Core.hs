@@ -71,6 +71,7 @@ module Control.MapReduce.Core
   , uagMapAllGatherEachFold
   , uagMapEachFold
   , uagMapAllGatherOnceFold
+  , uagListFold
   -- *** monadic
   , uagMapAllGatherEachFoldM
   , uagMapEachFoldM
@@ -97,6 +98,7 @@ import qualified Control.Foldl                 as FL
 import           Control.Foldl                  ( Fold
                                                 , FoldM
                                                 ) -- for re-exporting
+import qualified Data.Foldable                 as F
 import           Data.Monoid                    ( Monoid(..) )
 import           Data.Kind                      ( Type
                                                 , Constraint
@@ -225,6 +227,18 @@ uagMapAllGatherEachFold g u a =
   in  FL.premap (foldInto g . fmap assign . unpack) FL.mconcat
 {-# INLINABLE uagMapAllGatherEachFold #-}
 
+uagListFold
+  :: Foldable g
+  => Gatherer ec gt k c d
+  -> Unpack g x y
+  -> Assign k y c
+  -> FL.Fold x gt
+uagListFold g u a =
+  let (Unpack unpack) = u
+      (Assign assign) = a
+  in  fmap (foldInto g . mconcat . fmap (fmap assign . F.toList . unpack))
+           FL.list
+
 -- | Do the map step by unpacking to a monoid, merge those monoids via mappend, then do the assigning and grouping 
 uagMapEachFoldM
   :: (Monad m, Monoid (g y), Traversable g)
@@ -239,6 +253,9 @@ uagMapEachFoldM g u a =
       $ postMapM (fmap (foldInto g) . traverse assignM)
       $ FL.generalize FL.mconcat
 {-# INLINABLE uagMapEachFoldM #-}
+
+
+
 
 -- | Do the map step by unpacking, assigning such that the unpacked and assigned items are monoidal, merge those via mappend then do the grouping   
 uagMapAllGatherOnceFoldM
