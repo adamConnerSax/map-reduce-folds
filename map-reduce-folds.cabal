@@ -26,10 +26,11 @@ library
   ghc-options: -Wall -O3 -funbox-strict-fields
   exposed-modules: Control.MapReduce
                  , Control.MapReduce.Core
-                 , Control.MapReduce.Engines
---                 , Control.MapReduce.Gatherer
                  , Control.MapReduce.Simple
-                 , Control.MapReduce.Parallel
+                 , Control.MapReduce.Engines
+                 , Control.MapReduce.Engines.List
+--                 , Control.MapReduce.Engines.Streams
+                 , Control.MapReduce.Engines.Parallel
 
   build-depends:   
                  , hashable

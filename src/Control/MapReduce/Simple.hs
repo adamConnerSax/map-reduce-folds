@@ -55,7 +55,8 @@ where
 
 import qualified Control.MapReduce.Core        as MR
 import           Control.MapReduce.Core -- for re-export.  I don't like the unqualified-ness of this.
-import qualified Control.MapReduce.Engines     as MRE
+import qualified Control.MapReduce.Engines.List
+                                               as MRE
 --import qualified Control.MapReduce.Parallel    as MRP
 
 import qualified Control.Foldl                 as FL
@@ -66,18 +67,18 @@ import           Data.Hashable                  ( Hashable )
 import qualified Data.List                     as L
 
 -- | Don't do anything in the unpacking stage
-noUnpack :: MR.Unpack Identity x x
-noUnpack = MR.Unpack Identity
+noUnpack :: MR.Unpack x x
+noUnpack = MR.Filter $ const True
 {-# INLINABLE noUnpack #-}
 
 -- | unpack using the given function
-simpleUnpack :: (x -> y) -> MR.Unpack Identity x y
-simpleUnpack f = fmap f noUnpack --MR.Unpack $ Identity . f
+simpleUnpack :: (x -> y) -> MR.Unpack x y
+simpleUnpack f = MR.Unpack $ Identity . f
 {-# INLINABLE simpleUnpack #-}
 
 -- | Filter while unpacking, using the given function
-filterUnpack :: (x -> Bool) -> MR.Unpack Maybe x x
-filterUnpack t = let f !x = if t x then Just x else Nothing in MR.Unpack f
+filterUnpack :: (x -> Bool) -> MR.Unpack x x
+filterUnpack t = MR.Filter t
 {-# INLINABLE filterUnpack #-}
 
 -- | Assign via two functions, one that provides the key and one that provides the data to be grouped by that key
@@ -134,8 +135,8 @@ foldAndRelabelM fld relabel =
 {-# INLINABLE foldAndRelabelM #-}
 
 mapReduceFold
-  :: (Ord k, Functor g, Foldable g)
-  => MR.Unpack g x y -- ^ unpack x to (g y)
+  :: Ord k
+  => MR.Unpack x y -- ^ unpack x to none or one or many y's
   -> MR.Assign k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.Reduce k c d -- ^ reduce a grouped [c] to d
   -> FL.Fold x [d]
@@ -143,8 +144,8 @@ mapReduceFold = MRE.lazyMapListEngine
 {-# INLINABLE mapReduceFold #-}
 
 mapReduceFoldM
-  :: (Monad m, Ord k, Traversable g)
-  => MR.UnpackM m g x y -- ^ unpack x to (g y)
+  :: (Monad m, Ord k)
+  => MR.UnpackM m x y -- ^ unpack x to none or one or many y's
   -> MR.AssignM m k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.ReduceM m k c d -- ^ reduce a grouped [c] to d
   -> FL.FoldM m x [d]
@@ -152,8 +153,8 @@ mapReduceFoldM = MRE.lazyMapListEngineM
 {-# INLINABLE mapReduceFoldM #-}
 
 hashableMapReduceFold
-  :: (Hashable k, Eq k, Functor g, Foldable g)
-  => MR.Unpack g x y -- ^ unpack x to (g y)
+  :: (Hashable k, Eq k)
+  => MR.Unpack x y -- ^ unpack x to none or one or many y's
   -> MR.Assign k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.Reduce k c d -- ^ reduce a grouped [c] to d
   -> FL.Fold x [d]
@@ -161,8 +162,8 @@ hashableMapReduceFold = MRE.lazyHashMapListEngine
 {-# INLINABLE hashableMapReduceFold #-}
 
 hashableMapReduceFoldM
-  :: (Monad m, Ord k, Traversable g)
-  => MR.UnpackM m g x y -- ^ unpack x to (g y)
+  :: (Monad m, Ord k)
+  => MR.UnpackM m x y -- ^ unpack x to to none or one or many y's
   -> MR.AssignM m k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.ReduceM m k c d -- ^ reduce a grouped [c] to d
   -> FL.FoldM m x [d]
@@ -170,16 +171,13 @@ hashableMapReduceFoldM = MRE.lazyMapListEngineM
 {-# INLINABLE hashableMapReduceFoldM #-}
 
 -- | do only the unpack step.
-unpackOnlyFold :: (Functor g, Foldable g) => MR.Unpack g x y -> FL.Fold x [y]
-unpackOnlyFold (MR.Unpack u) = fmap (L.concat . fmap (F.toList . u)) FL.list
+unpackOnlyFold :: MR.Unpack x y -> FL.Fold x [y]
+unpackOnlyFold u = fmap (MRE.unpackList u) FL.list
 {-# INLINABLE unpackOnlyFold #-}
 
 -- | do only the (monadic) unpack step. Use a TypeApplication to specify what to unpack to. As in 'unpackOnlyFoldM @[]'
-unpackOnlyFoldM
-  :: (Monad m, Traversable g) => MR.UnpackM m g x y -> FL.FoldM m x [y]
-unpackOnlyFoldM (MR.UnpackM u) = MR.postMapM
-  (fmap L.concat . traverse (fmap F.toList . u))
-  (FL.generalize FL.list)
+unpackOnlyFoldM :: Monad m => MR.UnpackM m x y -> FL.FoldM m x [y]
+unpackOnlyFoldM u = MR.postMapM (MRE.unpackListM u) (FL.generalize FL.list)
 {-# INLINABLE unpackOnlyFoldM #-}
 {-
 -- | basic parallel mapReduce, assumes Hashable key.  Takes two arguments to specify how things should be grouped.

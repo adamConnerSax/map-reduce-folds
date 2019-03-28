@@ -15,14 +15,14 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
-Module      : Control.MapReduce.Parallel
+Module      : Control.MapReduce.Engines.Parallel
 Description : Gatherer code for map-reduce-folds
 Copyright   : (c) Adam Conner-Sax 2019
 License     : BSD-3-Clause
 Maintainer  : adam_conner_sax@yahoo.com
 Stability   : experimental
 
-Some basic attempts at parallel map-reduce folds.  There are multiple places we can do things in parallel.
+Some basic attempts at parallel map-reduce folds with lists as intermediate type.  There are multiple places we can do things in parallel.
 
 (1) We can map (unpack/assign) in parallel.
 (2) We can reduce in parallel.
@@ -32,7 +32,7 @@ Some basic attempts at parallel map-reduce folds.  There are multiple places we 
 So far these are sometimes faster and sometimes slower than their serial counterparts.  So there is much room
 for improvement, I think.
 -}
-module Control.MapReduce.Parallel
+module Control.MapReduce.Engines.Parallel
   (
     -- * lazy hash map grouping parallel list map-reduce 
     parallelMapReduceFold
@@ -48,6 +48,8 @@ where
 
 import qualified Control.MapReduce.Core        as MRC
 import qualified Control.MapReduce.Engines     as MRE
+import qualified Control.MapReduce.Engines.List
+                                               as MRL
 
 import           Control.Arrow                  ( second )
 import qualified Control.Foldl                 as FL
@@ -69,9 +71,9 @@ import           Control.Parallel.Strategies    ( NFData ) -- for re-export
 
 
 parallelMapReduceFold
-  :: (NFData k, NFData c, NFData d, Functor g, Foldable g, Hashable k, Eq k)
+  :: (NFData k, NFData c, NFData d, Hashable k, Eq k)
   => Int
-  -> MRE.MapReduceFold g y k c [] x d
+  -> MRE.MapReduceFold y k c [] x d
 parallelMapReduceFold numThreads = parallelListEngine
   numThreads
   (HMS.toList . HMS.fromListWith (<>) . fmap (second (pure @[])))
@@ -80,17 +82,16 @@ parallelMapReduceFold numThreads = parallelListEngine
 -- Chunks the input to numThreads chunks and sparks each chunk for mapping, merges the results, groups, then uses the same chunking and merging to do the reductions.
 -- grouping could also be parallel but that is under the control of the given function.
 parallelListEngine
-  :: forall g y k c x d
-   . (NFData k, NFData c, NFData d, Functor g, Foldable g)
+  :: forall y k c x d
+   . (NFData k, NFData c, NFData d)
   => Int
   -> ([(k, c)] -> [(k, [c])])
-  -> MRE.MapReduceFold g y k c [] x d
-parallelListEngine numThreads groupByKey (MRC.Unpack u) (MRC.Assign a) r =
+  -> MRE.MapReduceFold y k c [] x d
+parallelListEngine numThreads groupByKey u (MRC.Assign a) r =
   let chunkedF :: FL.Fold x [[x]] =
         fmap (L.divvy numThreads numThreads) FL.list
-      mappedF :: FL.Fold x [(k, c)] = fmap
-        (L.concat . parMapEach (L.concat . fmap (fmap a . F.toList . u)))
-        chunkedF
+      mappedF :: FL.Fold x [(k, c)] =
+        fmap (L.concat . parMapEach (fmap a . MRL.unpackList u)) chunkedF
       groupedF :: FL.Fold x [(k, [c])] = fmap groupByKey mappedF
       reducedF :: FL.Fold x [d]        = fmap
         ( L.concat
@@ -99,37 +100,6 @@ parallelListEngine numThreads groupByKey (MRC.Unpack u) (MRC.Assign a) r =
         )
         groupedF
   in  reducedF
-{-
-parallelMapReduceFold
-  :: forall g c h x gt k y z ce e
-   . (Monoid e, ce e, PS.NFData gt, Foldable h, Monoid gt)
-  => Int -- ^ One Spark Maximum.  Determines chunksize for mconcat
-  -> Int -- ^ numThreads.  Determines chunkSize for mapping.
-  -> (  MR.Gatherer ce gt k c (h z)
-     -> MR.Unpack g x y
-     -> MR.Assign k y c
-     -> FL.Fold x gt
-     )
-  -> MR.Gatherer ce gt k c (h z)
-  -> MR.Unpack g x y
-  -> MR.Assign k y c
-  -> MR.Reduce k h z e
-  -> FL.Fold x e
-parallelMapReduceFold oneSparkMax numThreads gatherStrat gatherer unpack assign reduce
-  = let
-      mapFold = gatherStrat gatherer unpack assign
-      chunkedF :: FL.Fold x [[x]] =
-        fmap (L.divvy numThreads numThreads) FL.list -- list divvied into n sublists
-      mappedF :: FL.Fold x [gt] = fmap (parMapEach (FL.fold mapFold)) chunkedF -- list of n gt
-      mergedF :: FL.Fold x gt   = fmap (parFoldMonoid oneSparkMax) mappedF
-      reducedF                  = case reduce of
-        MR.Reduce f -> fmap (MR.gFoldMapWithKey gatherer f) mergedF
-        MR.ReduceFold f ->
-          fmap (MR.gFoldMapWithKey gatherer (\k hx -> FL.fold (f k) hx)) mergedF
-    in
-      reducedF
-{-# INLINABLE parallelMapReduceFold #-}
--}
 
 parMapEach :: PS.NFData b => (a -> b) -> [a] -> [b]
 parMapEach = PS.parMap (PS.rparWith PS.rdeepseq)

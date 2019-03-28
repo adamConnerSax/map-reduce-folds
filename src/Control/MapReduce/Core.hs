@@ -39,18 +39,10 @@ and we will loop over the data only once.
 The Reduce type is also Applicative so there could be work sharing there as well:
 e.g., if your `reduce :: (k -> d -> e)` has the form `reduce k :: FL.Fold d e`
 
-A couple of parts are less straightforward.  The "Gatherer" (a record-of-functions for gathering, grouping and traversing over the groups)
-is responsible for choosing what structure holds the grouped data.  The default choices are map or hash map.  Lazy and strict variants seem to
-have similar performance in benchmarks so lazy is likely a better choice since then you can perhaps avoid doing work on grouped data you don' use.
+These types are meant to simplify the building of "Engines" which combine them into a single efficient fold from a container of x to some container of the result.
 
-And there is the question of how data is grouped for each key after assigning. The simplest choice
-is as a list but other options are possible.  This choice is typically made via a function from the data part of the assign
-to a monoid.  So if assign chooses a (k, c) pair for each unpacked datum, we group to (k, d) where d is a monoid.  And
-we specify this via a choice of `Monoid d => (c->d)`, often, for gathering into lists, just `pure @[] :: c -> [c]`
-
-Several types have a parameter, @mm@, which is a type-level @Maybe@ used to indicate non-monadic @(mm ~ Nothing)@ vs monadic @(Monad m, mm ~ ('Just m))@.
-This allows for handling non-monadic and monadic folds with the same functions.  But unpacking and reducing must either both be monadic or neither so there
-are included functions for generalizing non-monadic Unpack/Reduce to monadic when required.
+The goal is to make assembling a large family of common map/reduce patterns in a straightforward way.  At some level of complication, you may as
+well write them by hand.  An in-between case would be writing the unpack function as a complex hand written filter
 -}
 module Control.MapReduce.Core
   (
@@ -84,32 +76,47 @@ import qualified Data.Profunctor               as P
 import           Control.Arrow                  ( second )
 
 -- | `Unpack` is for "melting" rows (@g ~ [])@ or filtering items (@g ~ Maybe@).
-data Unpack g x y where
-  Unpack :: (x -> g y) -> Unpack g x y
+-- filter is a special case because it can often be done faster directly than via something like catMaybes . fmap (a -> Maybe b)
+data Unpack x y where
+  Filter :: (x -> Bool) -> Unpack x x -- we single out this special case because it's faster to do directly
+  Unpack :: Traversable g => (x -> g y) -> Unpack x y -- we only need (Functor g, Foldable g) but if we want to generalize we need Traversable
 
-instance Functor g => Functor (Unpack g x) where
+boolToMaybe :: Bool -> a -> Maybe a
+boolToMaybe b x = if b then Just x else Nothing
+
+ifToMaybe :: (x -> Bool) -> x -> Maybe x
+ifToMaybe t x = boolToMaybe (t x) x
+
+instance Functor (Unpack x) where
+  fmap h (Filter t) = Unpack (fmap h . ifToMaybe t)
   fmap h (Unpack f) = Unpack (fmap h . f)
   {-# INLINABLE fmap #-}
 
-instance Functor g => P.Profunctor (Unpack g) where
+instance P.Profunctor Unpack where
+  dimap l r (Filter t) = Unpack ( fmap r . ifToMaybe t . l)
   dimap l r (Unpack f) = Unpack ( fmap r . f . l)
   {-# INLINABLE dimap #-}
 
 -- | `UnpackM` is for "melting" rows (@g ~ [])@ or filtering items (@g ~ Maybe@). This version has a monadic result type to
 -- accomodate unpacking that might require randomness or logging during unpacking.
-data UnpackM m g x y where
-  UnpackM :: Monad m => (x -> m (g y)) -> UnpackM m g x y
+-- filter is a special case since (non-effectful) filtering can be often be done faster.  So we single it out. 
+data UnpackM m x y where
+  FilterM :: Monad m => (x -> Bool) -> UnpackM m x x -- if we need to do the effects to test, we may as well not use the special case
+  UnpackM :: (Monad m, Traversable g) => (x -> m (g y)) -> UnpackM m x y
 
-instance Functor g => Functor (UnpackM m g x) where
+instance Functor (UnpackM m x) where
+  fmap h (FilterM t) = UnpackM (\x -> return $ fmap h $ ifToMaybe t x)
   fmap h (UnpackM f) = UnpackM (fmap (fmap h) . f)
   {-# INLINABLE fmap #-}
 
-instance Functor g => P.Profunctor (UnpackM m g) where
+instance P.Profunctor (UnpackM m) where
+  dimap l r (FilterM t) = UnpackM (\x -> return $ fmap r $ ifToMaybe t (l x))
   dimap l r (UnpackM f) = UnpackM ( fmap (fmap r) . f . l)
   {-# INLINABLE dimap #-}
 
 -- | "lift" a non-monadic Unpack to a monadic one for any monad m
-generalizeUnpack :: Monad m => Unpack g x y -> UnpackM m g x y
+generalizeUnpack :: Monad m => Unpack x y -> UnpackM m x y
+generalizeUnpack (Filter t) = FilterM t
 generalizeUnpack (Unpack f) = UnpackM $ return . f
 {-# INLINABLE generalizeUnpack #-}
 

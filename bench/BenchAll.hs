@@ -7,8 +7,10 @@ import           Criterion
 
 
 import           Control.MapReduce             as MR
-import           Control.MapReduce.Engines     as MRE
-import           Control.MapReduce.Parallel    as MRP
+import           Control.MapReduce.Engines.List
+                                               as MRE
+import           Control.MapReduce.Engines.Parallel
+                                               as MRP
 
 import           Data.Text                     as T
 import           Data.List                     as L
@@ -17,6 +19,9 @@ import           Data.Map                      as M
 import qualified Control.Foldl                 as FL
 import           Control.Arrow                  ( second )
 import           Data.Foldable                 as F
+import           Data.Functor.Identity          ( Identity(Identity)
+                                                , runIdentity
+                                                )
 import           Data.Sequence                 as Seq
 import           Data.Maybe                     ( catMaybes )
 
@@ -38,7 +43,12 @@ direct =
     . fmap (FL.fold reducePFold)
     . HM.fromListWith (<>)
     . fmap (second $ pure @[])
+--    . catMaybes
+--    . fmap (\x -> if filterPF x then Just x else Nothing) --L.filter filterPF
     . L.filter filterPF
+    . L.concat
+    . fmap F.toList
+    . fmap Identity
     . F.toList
 {-# INLINE direct #-}
 
@@ -95,7 +105,7 @@ directFoldl3 = FL.fold
 
 mapReduce :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduce = FL.fold
-  (MR.hashableMapReduceFold (MR.Unpack $ \x -> if filterPF x then [x] else [])
+  (MR.hashableMapReduceFold (MR.Filter filterPF)
                             (MR.Assign id)
                             (MR.Reduce reducePF)
   )
