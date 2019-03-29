@@ -22,21 +22,19 @@ License     : BSD-3-Clause
 Maintainer  : adam_conner_sax@yahoo.com
 Stability   : experimental
 
-map-reduce engine (fold builder) using [] as it's intermediate type.
+map-reduce engine (fold builder) using [] as its intermediate type.
 -}
 module Control.MapReduce.Engines.List
   (
-  -- ** Helpers
-    unpackList
-  , unpackListM
-  -- ** partial builders
-  , listEngine
+  -- * Engines
+    listEngine
   , listEngineM
-  -- ** Engines  
-  , lazyHashMapListEngine
-  , lazyMapListEngine
-  , lazyHashMapListEngineM
-  , lazyMapListEngineM
+  -- * groupBy functions
+  , groupByHashedKey
+  , groupByOrdKey
+  -- * Helpers
+  , unpackList
+  , unpackListM
   )
 where
 
@@ -49,8 +47,8 @@ import           Data.Bool                      ( bool )
 import qualified Data.List                     as L
 import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
-import qualified Data.HashMap.Lazy             as HML
-import qualified Data.Map                      as ML
+import qualified Data.HashMap.Strict           as HMS
+import qualified Data.Map.Strict               as MS
 
 import           Control.Arrow                  ( second )
 
@@ -68,29 +66,16 @@ unpackListM (MRC.FilterM t) = return . L.filter t
 unpackListM (MRC.UnpackM f) = fmap L.concat . traverse (fmap F.toList . f)
 {-# INLINABLE unpackListM #-}
 
--- | map-reduce-fold engine using (Hashable k, Eq k) keys and returning a [] result
-lazyHashMapListEngine :: (Hashable k, Eq k) => MRE.MapReduceFold y k c [] x d
-lazyHashMapListEngine =
-  listEngine (HML.toList . HML.fromListWith (<>) . fmap (second (pure @[])))
-{-# INLINABLE lazyHashMapListEngine #-}
+-- | group the mapped and assigned values by key using a Data.HashMap.Strict
+groupByHashedKey :: (Hashable k, Eq k) => [(k, c)] -> [(k, [c])]
+groupByHashedKey =
+  HMS.toList . HMS.fromListWith (<>) . fmap (second $ pure @[])
+{-# INLINABLE groupByHashedKey #-}
 
--- | map-reduce-fold engine using (Ord k) keys and returning a [] result
-lazyMapListEngine :: Ord k => MRE.MapReduceFold y k c [] x d
-lazyMapListEngine =
-  listEngine (ML.toList . ML.fromListWith (<>) . fmap (second (pure @[])))
-{-# INLINABLE lazyMapListEngine #-}
-
--- | effectful map-reduce-fold engine using (Hashable k, Eq k) keys and returning a [] result
-lazyHashMapListEngineM
-  :: (Monad m, Hashable k, Eq k) => MRE.MapReduceFoldM m y k c [] x d
-lazyHashMapListEngineM =
-  listEngineM (HML.toList . HML.fromListWith (<>) . fmap (second (pure @[])))
-
--- | effectful map-reduce-fold engine using (Ord k) keys and returning a [] result
-lazyMapListEngineM :: (Monad m, Ord k) => MRE.MapReduceFoldM m y k c [] x d
-lazyMapListEngineM =
-  listEngineM (ML.toList . ML.fromListWith (<>) . fmap (second (pure @[])))
-{-# INLINABLE lazyHashMapListEngineM #-}
+-- | group the mapped and assigned values by key using a Data.HashMap.Strict
+groupByOrdKey :: Ord k => [(k, c)] -> [(k, [c])]
+groupByOrdKey = MS.toList . MS.fromListWith (<>) . fmap (second $ pure @[])
+{-# INLINABLE groupByOrdKey #-}
 
 -- | map-reduce-fold engine builder using (Hashable k, Eq k) keys and returning a [] result
 listEngine :: ([(k, c)] -> [(k, [c])]) -> MRE.MapReduceFold y k c [] x d

@@ -8,7 +8,9 @@ import           Criterion
 
 import           Control.MapReduce             as MR
 import           Control.MapReduce.Engines.List
-                                               as MRE
+                                               as MRL
+import           Control.MapReduce.Engines.Streams
+                                               as MRS
 import           Control.MapReduce.Engines.Parallel
                                                as MRP
 
@@ -103,13 +105,23 @@ directFoldl3 = FL.fold
 {-# INLINE directFoldl3 #-}
 
 
-mapReduce :: Foldable g => g (Char, Int) -> [(Char, Double)]
-mapReduce = FL.fold
-  (MR.hashableMapReduceFold (MR.Filter filterPF)
-                            (MR.Assign id)
-                            (MR.Reduce reducePF)
+mapReduceList :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceList = FL.fold
+  (MRL.listEngine MRL.groupByHashedKey
+                  (MR.Filter filterPF)
+                  (MR.Assign id)
+                  (MR.Reduce reducePF)
   )
-{-# INLINE mapReduce #-}
+{-# INLINE mapReduceList #-}
+
+mapReduceStream :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceStream = FL.fold
+  (MRS.streamEngine MRS.groupByHashedKey
+                    (MR.Filter filterPF)
+                    (MR.Assign id)
+                    (MR.Reduce reducePF)
+  )
+{-# INLINE mapReduceStream #-}
 
 parMapReduce :: Foldable g => g (Char, Int) -> [(Char, Double)]
 parMapReduce = FL.fold
@@ -130,7 +142,8 @@ benchOne dat = bgroup
   , bench "directFoldl" $ nf directFoldl dat
   , bench "directFoldl2" $ nf directFoldl2 dat
   , bench "directFoldl3" $ nf directFoldl3 dat
-  , bench "mapReduce" $ nf mapReduce dat
+  , bench "mapReduce ([] Engine, strict hash map)" $ nf mapReduceList dat
+  , bench "mapReduce (Streams Engine, strict hash map)" $ nf mapReduceStream dat
   , bench "parMapReduce" $ nf parMapReduce dat
   ]
 
@@ -170,11 +183,20 @@ directM =
     . fmap unpackMF
     . F.toList
 
-basicList :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
-basicList = FL.fold
-  (MR.lazyHashMapListEngine (MR.Unpack unpackMF)
-                            (MR.Assign assignMF)
-                            (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
+mapReduce2List :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
+mapReduce2List = FL.fold
+  (MRL.listEngine MRL.groupByHashedKey
+                  (MR.Unpack unpackMF)
+                  (MR.Assign assignMF)
+                  (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
+  )
+
+mapReduce2Stream :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
+mapReduce2Stream = FL.fold
+  (MRS.streamEngine MRS.groupByHashedKey
+                    (MR.Unpack unpackMF)
+                    (MR.Assign assignMF)
+                    (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
 
@@ -189,7 +211,10 @@ basicListP = FL.fold
 benchTwo dat = bgroup
   "Task 2, on Map Text Int "
   [ bench "direct" $ nf directM dat
-  , bench "map-reduce-fold (lazy hash map, serial)" $ nf basicList dat
+  , bench "map-reduce-fold ([], strict hash map, serial)"
+    $ nf mapReduce2List dat
+  , bench "map-reduce-fold (Streaming.Stream, strict hash map, serial)"
+    $ nf mapReduce2Stream dat
   , bench "map-reduce-fold (lazy hash map, parallel)" $ nf basicListP dat
   ]
 

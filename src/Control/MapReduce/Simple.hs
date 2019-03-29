@@ -55,8 +55,11 @@ where
 
 import qualified Control.MapReduce.Core        as MR
 import           Control.MapReduce.Core -- for re-export.  I don't like the unqualified-ness of this.
+import qualified Control.MapReduce.Engines.Streams
+                                               as MRS
 import qualified Control.MapReduce.Engines.List
-                                               as MRE
+                                               as MRL
+
 --import qualified Control.MapReduce.Parallel    as MRP
 
 import qualified Control.Foldl                 as FL
@@ -140,7 +143,7 @@ mapReduceFold
   -> MR.Assign k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.Reduce k c d -- ^ reduce a grouped [c] to d
   -> FL.Fold x [d]
-mapReduceFold = MRE.lazyMapListEngine
+mapReduceFold = MRS.streamEngine MRS.groupByOrdKey
 {-# INLINABLE mapReduceFold #-}
 
 mapReduceFoldM
@@ -149,7 +152,7 @@ mapReduceFoldM
   -> MR.AssignM m k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.ReduceM m k c d -- ^ reduce a grouped [c] to d
   -> FL.FoldM m x [d]
-mapReduceFoldM = MRE.lazyMapListEngineM
+mapReduceFoldM = MRS.streamEngineM MRS.groupByOrdKey
 {-# INLINABLE mapReduceFoldM #-}
 
 hashableMapReduceFold
@@ -158,26 +161,26 @@ hashableMapReduceFold
   -> MR.Assign k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.Reduce k c d -- ^ reduce a grouped [c] to d
   -> FL.Fold x [d]
-hashableMapReduceFold = MRE.lazyHashMapListEngine
+hashableMapReduceFold = MRS.streamEngine MRS.groupByHashedKey
 {-# INLINABLE hashableMapReduceFold #-}
 
 hashableMapReduceFoldM
-  :: (Monad m, Ord k)
+  :: (Monad m, Hashable k, Eq k)
   => MR.UnpackM m x y -- ^ unpack x to to none or one or many y's
   -> MR.AssignM m k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.ReduceM m k c d -- ^ reduce a grouped [c] to d
   -> FL.FoldM m x [d]
-hashableMapReduceFoldM = MRE.lazyMapListEngineM
+hashableMapReduceFoldM = MRS.streamEngineM MRS.groupByHashedKey
 {-# INLINABLE hashableMapReduceFoldM #-}
 
 -- | do only the unpack step.
 unpackOnlyFold :: MR.Unpack x y -> FL.Fold x [y]
-unpackOnlyFold u = fmap (MRE.unpackList u) FL.list
+unpackOnlyFold u = fmap (MRL.unpackList u) FL.list
 {-# INLINABLE unpackOnlyFold #-}
 
 -- | do only the (monadic) unpack step. Use a TypeApplication to specify what to unpack to. As in 'unpackOnlyFoldM @[]'
 unpackOnlyFoldM :: Monad m => MR.UnpackM m x y -> FL.FoldM m x [y]
-unpackOnlyFoldM u = MR.postMapM (MRE.unpackListM u) (FL.generalize FL.list)
+unpackOnlyFoldM u = MR.postMapM (MRL.unpackListM u) (FL.generalize FL.list)
 {-# INLINABLE unpackOnlyFoldM #-}
 {-
 -- | basic parallel mapReduce, assumes Hashable key.  Takes two arguments to specify how things should be grouped.
