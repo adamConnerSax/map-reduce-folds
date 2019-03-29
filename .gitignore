@@ -11,3 +11,4 @@ cabal.project.local
 TAGS
 .ghc*
 bench/*.html
+*.prof

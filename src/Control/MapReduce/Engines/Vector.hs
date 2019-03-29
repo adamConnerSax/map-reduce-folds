@@ -27,10 +27,10 @@ map-reduce engine (fold builder) using Vector.Fusion.Stream as its intermediate 
 module Control.MapReduce.Engines.Vector
   (
     -- * Engines
---    vectorEngine
---  , vectorEngineM
+    vectorStreamEngine
+  , vectorStreamEngineM
   -- * groupBy functions
-    groupByHashedKey
+  , groupByHashedKey
   , groupByOrdKey
   )
 where
@@ -43,6 +43,7 @@ import           Data.Bool                      ( bool )
 import           Data.Functor.Identity          ( Identity(Identity)
                                                 , runIdentity
                                                 )
+import           Control.Monad                  ( join )
 import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
 import qualified Data.HashMap.Lazy             as HML
@@ -88,60 +89,63 @@ groupByHashedKey
   :: forall m k c
    . (Monad m, Hashable k, Eq k)
   => Stream m (k, c)
-  -> Stream m (k, [c])
-groupByHashedKey s = fromMonadicList $ do
+  -> m (Stream m (k, [c]))
+groupByHashedKey s = do
   lkc <- VS.toList s
-  return $ HMS.toList $ HMS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
+  return $ VS.fromList $ HML.toList $ HML.fromListWith (<>) $ fmap
+    (second $ pure @[])
+    lkc
 {-# INLINABLE groupByHashedKey #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
 groupByOrdKey
-  :: forall m k c . (Monad m, Ord k) => Stream m (k, c) -> Stream m (k, [c])
-groupByOrdKey s = fromMonadicList $ do
+  :: forall m k c . (Monad m, Ord k) => Stream m (k, c) -> m (Stream m (k, [c]))
+groupByOrdKey s = do
   lkc <- VS.toList s
-  return $ MS.toList $ MS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
+  return $ VS.fromList $ MS.toList $ MS.fromListWith (<>) $ fmap
+    (second $ pure @[])
+    lkc
 {-# INLINABLE groupByOrdKey #-}
 
-{-
--- | map-reduce-fold engine builder returning a [] result
-streamEngine
-  :: (  forall c r
-      . Stream (Of (k, c)) Identity r
-     -> Stream (Of (k, [c])) Identity r
-     )
-  -> MRE.MapReduceFold y k c [] x d
-streamEngine groupByKey u (MRC.Assign a) r = FL.Fold
-  (\s a -> S.cons a s)
-  (return ())
-  ( runIdentity
-  . S.toList_
-  . S.map (\(k, lc) -> MRE.reduceFunction r k lc)
-  . groupByKey
-  . S.map a
-  . unpackStream u
-  )
-{-# INLINABLE streamEngine #-}
 
--- | effectful map-reduce-fold engine builder returning a [] result
-streamEngineM
+-- | map-reduce-fold engine builder, using Vector.Fusion.Stream.Monadic, returning a [] result
+vectorStreamEngine
+  :: (Stream Identity (k, c) -> Identity (Stream Identity (k, [c])))
+  -> MRE.MapReduceFold y k c [] x d
+vectorStreamEngine groupByKey u (MRC.Assign a) r = FL.Fold
+  VS.snoc
+  VS.empty
+  ( runIdentity
+  . VS.toList
+  . VS.map (\(k, lc) -> MRE.reduceFunction r k lc)
+  . runIdentity
+  . groupByKey
+  . VS.map a
+  . unpackVStream u
+  )
+{-# INLINABLE vectorStreamEngine #-}
+
+-- | effectful map-reduce-fold engine builder, using Vector.Fusion.Stream.Monadic, returning a [] result
+vectorStreamEngineM
   :: Monad m
-  => (forall c r . Stream (Of (k, c)) m r -> Stream (Of (k, [c])) m r)
+  => (Stream m (k, c) -> m (Stream m (k, [c])))
   -> MRE.MapReduceFoldM m y k c [] x d
-streamEngineM groupByKey u (MRC.AssignM a) r =
+vectorStreamEngineM groupByKey u (MRC.AssignM a) r =
   MRC.postMapM id $ FL.generalize $ FL.Fold
-    (\s a -> S.cons a s)
-    (return ())
-    ( S.toList_
-    . S.mapM (\(k, lc) -> MRE.reduceFunctionM r k lc)
+    VS.snoc
+    VS.empty
+    ( join
+    . fmap (VS.toList)
+    . fmap (VS.mapM (\(k, lc) -> MRE.reduceFunctionM r k lc))
     . groupByKey
-    . S.mapM a
-    . unpackStreamM u
+    . VS.mapM a
+    . unpackVStreamM u
     )
 -- NB: @postMapM id@ is sneaky.  id :: m d -> m d interpreted as a -> m b implies b ~ d so you get
 -- postMapM id (FoldM m x (m d)) :: FoldM m x d
 -- which makes more sense if you recall that postMapM f just changes the "done :: x -> m (m d)" step to done' = done >>= f and
 -- (>>= id) = join . fmap id = join, so done' :: x -> m d, as we need for the output type.
-{-# INLINABLE streamEngineM #-}
+{-# INLINABLE vectorStreamEngineM #-}
 
 
--}
+

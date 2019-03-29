@@ -20,7 +20,7 @@ common deps
                , containers
                , foldl
                , profunctors               
-
+               
 library
   import: deps
   ghc-options: -Wall -O3 -funbox-strict-fields
@@ -50,7 +50,7 @@ benchmark bench-map-reduce
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench
   other-modules:       
-  ghc-options:         -O3
+  ghc-options:         -O3 -prof -fprof-auto
 --                       -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches -ddump-simpl -ddump-to-file -ddump-rule-firings -ddump-to-file -ddump-rule-rewrites -ddump-to-file
   main-is:             BenchAll.hs
   build-depends:       map-reduce-folds, foldl, base, criterion, unordered-containers, deepseq, text
