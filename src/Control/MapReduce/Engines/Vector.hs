@@ -15,20 +15,20 @@
 {-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
-Module      : Control.MapReduce.Engines.Streams
+Module      : Control.MapReduce.Engines.Vector
 Description : map-reduce-folds builders
 Copyright   : (c) Adam Conner-Sax 2019
 License     : BSD-3-Clause
 Maintainer  : adam_conner_sax@yahoo.com
 Stability   : experimental
 
-map-reduce engine (fold builder) using Vector.Fusion.Stream as its intermediate type.
+map-reduce engine (fold builder) using Vector as its intermediate type.
 -}
 module Control.MapReduce.Engines.Vector
   (
     -- * Engines
-    vectorStreamEngine
-  , vectorStreamEngineM
+    vectorEngine
+  , vectorEngineM
   -- * groupBy functions
   , groupByHashedKey
   , groupByOrdKey
@@ -43,7 +43,7 @@ import           Data.Bool                      ( bool )
 import           Data.Functor.Identity          ( Identity(Identity)
                                                 , runIdentity
                                                 )
-import           Control.Monad                  ( join )
+import           Control.Monad                  ( (>=>), (<=<), join )
 import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
 import qualified Data.HashMap.Lazy             as HML
@@ -51,101 +51,72 @@ import qualified Data.HashMap.Strict           as HMS
 import qualified Data.Map                      as ML
 import qualified Data.Map.Strict               as MS
 import qualified Data.Profunctor               as P
-import qualified Data.Vector.Fusion.Stream.Monadic
-                                               as VS
-import           Data.Vector.Fusion.Stream.Monadic
-                                                ( Stream(Stream) )
-
+import qualified Data.Vector                   as V
+import           Data.Vector                    (Vector)
 import           Control.Arrow                  ( second )
 
 
 
 -- | case analysis of Unpack for streaming based mapReduce
-unpackVStream :: MRC.Unpack x y -> Stream Identity x -> Stream Identity y
-unpackVStream (MRC.Filter t) = VS.filter t
-unpackVStream (MRC.Unpack f) = VS.concatMap (VS.fromList . F.toList . f) -- can we do without the [] here?  Should get fused away...
-{-# INLINABLE unpackVStream #-}
+unpackVector :: MRC.Unpack x y -> Vector x -> Vector y
+unpackVector (MRC.Filter t) = V.filter t
+unpackVector (MRC.Unpack f) = V.concatMap (V.fromList . F.toList . f)
+{-# INLINABLE unpackVector #-}
 
 -- | case analysis of Unpack for list based mapReduce
-unpackVStreamM :: Monad m => MRC.UnpackM m x y -> Stream m x -> Stream m y
-unpackVStreamM (MRC.FilterM t) = VS.filter t
-unpackVStreamM (MRC.UnpackM f) =
-  VS.concatMapM (fmap (VS.fromList . F.toList) . f)
-{-# INLINABLE unpackVStreamM #-}
+unpackVectorM :: Monad m => MRC.UnpackM m x y -> Vector x -> m (Vector y)
+unpackVectorM (MRC.FilterM t) = return . V.filter t
+unpackVectorM (MRC.UnpackM f) =
+  fmap (V.concatMap id) . traverse (fmap (V.fromList . F.toList) . f)
+{-# INLINABLE unpackVectorM #-}
 
-fromMonadicList :: forall m a . Monad m => m [a] -> Stream m a
-fromMonadicList ma = Stream step ma
- where
-  step :: m [a] -> m (VS.Step (m [a]) a)
-  step mla = do
-    la <- mla
-    case la of
-      (x : xs) -> return (VS.Yield x (return xs))
-      []       -> return VS.Done
-{-# INLINABLE fromMonadicList #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
 groupByHashedKey
-  :: forall m k c
-   . (Monad m, Hashable k, Eq k)
-  => Stream m (k, c)
-  -> m (Stream m (k, [c]))
-groupByHashedKey s = do
-  lkc <- VS.toList s
-  return $ VS.fromList $ HML.toList $ HML.fromListWith (<>) $ fmap
-    (second $ pure @[])
-    lkc
+  :: forall k c
+   . (Hashable k, Eq k)
+  => Vector (k, c)
+  -> Vector (k, [c])
+groupByHashedKey v =
+  let hm = HML.fromListWith (<>) $ V.toList $ fmap (second $ pure @[]) v
+  in V.fromList $ HML.toList hm -- HML.foldrWithKey (\k lc v -> V.snoc v (k,lc)) V.empty hm 
 {-# INLINABLE groupByHashedKey #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
 groupByOrdKey
-  :: forall m k c . (Monad m, Ord k) => Stream m (k, c) -> m (Stream m (k, [c]))
-groupByOrdKey s = do
-  lkc <- VS.toList s
-  return $ VS.fromList $ MS.toList $ MS.fromListWith (<>) $ fmap
-    (second $ pure @[])
-    lkc
+  :: forall k c . Ord k => Vector (k, c) -> Vector (k, [c])
+groupByOrdKey v = 
+  let hm = MS.fromListWith (<>) $ V.toList $ fmap (second $ pure @[]) v
+  in V.fromList $ MS.toList hm --MS.foldrWithKey (\k lc s -> VS.cons (k,lc) s) VS.empty hm
 {-# INLINABLE groupByOrdKey #-}
 
 
 -- | map-reduce-fold engine builder, using Vector.Fusion.Stream.Monadic, returning a [] result
-vectorStreamEngine
-  :: (Stream Identity (k, c) -> Identity (Stream Identity (k, [c])))
+vectorEngine
+  :: (Vector (k, c) -> Vector (k, [c]))
   -> MRE.MapReduceFold y k c [] x d
-vectorStreamEngine groupByKey u (MRC.Assign a) r = FL.Fold
-  VS.snoc
-  VS.empty
-  ( runIdentity
-  . VS.toList
-  . VS.map (\(k, lc) -> MRE.reduceFunction r k lc)
-  . runIdentity
+vectorEngine groupByKey u (MRC.Assign a) r = fmap 
+  ( V.toList
+  . V.map (uncurry (MRE.reduceFunction r))
   . groupByKey
-  . VS.map a
-  . unpackVStream u
-  )
-{-# INLINABLE vectorStreamEngine #-}
+  . V.map a
+  . unpackVector u
+  ) FL.vector
+{-# INLINABLE vectorEngine #-}
 
 -- | effectful map-reduce-fold engine builder, using Vector.Fusion.Stream.Monadic, returning a [] result
-vectorStreamEngineM
+vectorEngineM
   :: Monad m
-  => (Stream m (k, c) -> m (Stream m (k, [c])))
+  => (Vector (k, c) -> Vector (k, [c]))
   -> MRE.MapReduceFoldM m y k c [] x d
-vectorStreamEngineM groupByKey u (MRC.AssignM a) r =
-  MRC.postMapM id $ FL.generalize $ FL.Fold
-    VS.snoc
-    VS.empty
-    ( join
-    . fmap (VS.toList)
-    . fmap (VS.mapM (\(k, lc) -> MRE.reduceFunctionM r k lc))
-    . groupByKey
-    . VS.mapM a
-    . unpackVStreamM u
-    )
--- NB: @postMapM id@ is sneaky.  id :: m d -> m d interpreted as a -> m b implies b ~ d so you get
--- postMapM id (FoldM m x (m d)) :: FoldM m x d
--- which makes more sense if you recall that postMapM f just changes the "done :: x -> m (m d)" step to done' = done >>= f and
--- (>>= id) = join . fmap id = join, so done' :: x -> m d, as we need for the output type.
-{-# INLINABLE vectorStreamEngineM #-}
+vectorEngineM groupByKey u (MRC.AssignM a) r = MRC.postMapM
+    (fmap V.toList
+      . (traverse (uncurry (MRE.reduceFunctionM r)) =<<)
+      . fmap groupByKey
+      . (V.mapM a <=< unpackVectorM u)
+    ) (FL.generalize FL.vector)  
+{-# INLINABLE vectorEngineM #-}
+-- NB: If we are willing to constrain to PrimMonad m, then we can use vectorM here
 
 
 

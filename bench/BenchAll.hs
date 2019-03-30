@@ -125,14 +125,14 @@ mapReduceStream = FL.fold
   )
 {-# INLINE mapReduceStream #-}
 
-mapReduceVectorStream :: Foldable g => g (Char, Int) -> [(Char, Double)]
-mapReduceVectorStream = FL.fold
-  (MRV.vectorStreamEngine MRV.groupByHashedKey
+mapReduceVector :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceVector = FL.fold
+  (MRV.vectorEngine MRV.groupByHashedKey
                           (MR.Filter filterPF)
                           (MR.Assign id)
                           (MR.Reduce reducePF)
   )
-{-# INLINE mapReduceVectorStream #-}
+{-# INLINE mapReduceVector #-}
 
 
 parMapReduce :: Foldable g => g (Char, Int) -> [(Char, Double)]
@@ -156,8 +156,8 @@ benchOne dat = bgroup
   , bench "directFoldl3" $ nf directFoldl3 dat
   , bench "mapReduce ([] Engine, strict hash map)" $ nf mapReduceList dat
   , bench "mapReduce (Streams Engine, strict hash map)" $ nf mapReduceStream dat
-  , bench "mapReduce (Vector Fusion Streams Engine, strict hash map)"
-    $ nf mapReduceVectorStream dat
+  , bench "mapReduce (Vector Engine, strict hash map)"
+    $ nf mapReduceVector dat
   , bench "parMapReduce" $ nf parMapReduce dat
   ]
 
@@ -213,9 +213,9 @@ mapReduce2Stream = FL.fold
                     (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
-mapReduce2VectorStream :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
-mapReduce2VectorStream = FL.fold
-  (MRV.vectorStreamEngine MRV.groupByHashedKey
+mapReduce2Vector :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
+mapReduce2Vector = FL.fold
+  (MRV.vectorEngine MRV.groupByHashedKey
                           (MR.Unpack unpackMF)
                           (MR.Assign assignMF)
                           (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
@@ -238,8 +238,8 @@ benchTwo dat = bgroup
   , bench "map-reduce-fold (Streaming.Stream, strict hash map, serial)"
     $ nf mapReduce2Stream dat
   , bench
-      "map-reduce-fold (Vector.Fusion.Stream.Monadic, strict hash map, serial)"
-    $ nf mapReduce2VectorStream dat
+      "map-reduce-fold (Data.Vector, strict hash map, serial)"
+    $ nf mapReduce2Vector dat
   , bench "map-reduce-fold (lazy hash map, parallel)" $ nf basicListP dat
   ]
 
