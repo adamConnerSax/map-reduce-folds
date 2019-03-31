@@ -7,6 +7,8 @@ import           Criterion
 
 
 import           Control.MapReduce             as MR
+import           Control.MapReduce.Engines.GroupBy
+                                               as MRG
 import           Control.MapReduce.Engines.List
                                                as MRL
 import           Control.MapReduce.Engines.Streams
@@ -40,31 +42,15 @@ assignPF = id -- this is a function from the "data" to a pair (key, data-to-proc
 reducePFold = FL.premap realToFrac FL.mean
 reducePF k hx = (k, FL.fold reducePFold hx)
 
--- the most direct way I can easily think of
 direct :: Foldable g => g (Char, Int) -> [(Char, Double)]
 direct =
-  HM.toList
-    . fmap (FL.fold reducePFold)
-    . HM.fromListWith (<>)
-    . fmap (second $ pure @[])
---    . catMaybes
---    . fmap (\x -> if filterPF x then Just x else Nothing) --L.filter filterPF
-    . L.filter filterPF
-    . L.concat
-    . fmap F.toList
-    . fmap Identity
-    . F.toList
-{-# INLINE direct #-}
-
-direct2 :: Foldable g => g (Char, Int) -> [(Char, Double)]
-direct2 =
   fmap (uncurry reducePF)
     . HM.toList
     . HM.fromListWith (<>)
     . fmap (second $ pure @[])
     . L.filter filterPF
     . F.toList
-{-# INLINE direct2 #-}
+{-# INLINE direct #-}
 
 
 directFoldl :: Foldable g => g (Char, Int) -> [(Char, Double)]
@@ -77,34 +63,6 @@ directFoldl =
     . FL.fold FL.list
 {-# INLINE directFoldl #-}
 
-directFoldl2 :: Foldable g => g (Char, Int) -> [(Char, Double)]
-directFoldl2 = FL.fold
-  ((fmap
-     ( fmap (uncurry reducePF)
-     . HM.toList
-     . HM.fromListWith (<>)
-     . fmap (second $ pure @[])
-     . L.filter filterPF
-     )
-   )
-    FL.list
-  )
-{-# INLINE directFoldl2 #-}
-
-directFoldl3 :: Foldable g => g (Char, Int) -> [(Char, Double)]
-directFoldl3 = FL.fold
-  ((fmap
-     ( fmap (uncurry reducePF)
-     . HM.toList
-     . HM.fromListWith (<>)
-     . fmap (second $ pure @[])
-     . L.concat
-     . fmap (\x -> if filterPF x then [x] else [])
-     )
-   )
-    FL.list
-  )
-{-# INLINE directFoldl3 #-}
 
 
 mapReduceList :: Foldable g => g (Char, Int) -> [(Char, Double)]
@@ -115,6 +73,16 @@ mapReduceList = FL.fold
                   (MR.Reduce reducePF)
   )
 {-# INLINE mapReduceList #-}
+
+mapReduceListTVL :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceListTVL = FL.fold
+  (MRL.listEngine MRG.groupByTVL
+                  (MR.Filter filterPF)
+                  (MR.Assign id)
+                  (MR.Reduce reducePF)
+  )
+{-# INLINE mapReduceListTVL #-}
+
 
 mapReduceStream :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceStream = FL.fold
@@ -150,13 +118,11 @@ parMapReduce = FL.fold
 benchOne dat = bgroup
   "Task 1, on (Char, Int) "
   [ bench "direct" $ nf direct dat
-  , bench "direct2" $ nf direct2 dat
   , bench "directFoldl" $ nf directFoldl dat
-  , bench "directFoldl2" $ nf directFoldl2 dat
-  , bench "directFoldl3" $ nf directFoldl3 dat
   , bench "mapReduce ([] Engine, strict hash map)" $ nf mapReduceList dat
-  , bench "mapReduce (Streams Engine, strict hash map)" $ nf mapReduceStream dat
-  , bench "mapReduce (Vector Engine, strict hash map)"
+  , bench "mapReduce ([] Engine, Ord, group by TVL)" $ nf mapReduceListTVL dat
+  , bench "mapReduce (Streaming.Stream Engine, strict hash map)" $ nf mapReduceStream dat
+  , bench "mapReduce (Data.Vector Engine, strict hash map)"
     $ nf mapReduceVector dat
   , bench "parMapReduce" $ nf parMapReduce dat
   ]
@@ -205,6 +171,15 @@ mapReduce2List = FL.fold
                   (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
+mapReduce2ListTVL :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
+mapReduce2ListTVL = FL.fold
+  (MRL.listEngine MRG.groupByTVL
+                  (MR.Unpack unpackMF)
+                  (MR.Assign assignMF)
+                  (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
+  )
+
+
 mapReduce2Stream :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 mapReduce2Stream = FL.fold
   (MRS.streamEngine MRS.groupByHashedKey
@@ -233,14 +208,16 @@ basicListP = FL.fold
 benchTwo dat = bgroup
   "Task 2, on Map Text Int "
   [ bench "direct" $ nf directM dat
-  , bench "map-reduce-fold ([], strict hash map, serial)"
+  , bench "map-reduce-fold ([] Engine, strict hash map, serial)"
     $ nf mapReduce2List dat
-  , bench "map-reduce-fold (Streaming.Stream, strict hash map, serial)"
+  , bench "map-reduce-fold ([] Engine, Ord, groupBy TVL)"
+    $ nf mapReduce2List dat
+  , bench "map-reduce-fold (Streaming.Stream Engine, strict hash map, serial)"
     $ nf mapReduce2Stream dat
   , bench
-      "map-reduce-fold (Data.Vector, strict hash map, serial)"
+      "map-reduce-fold (Data.Vector Engine, strict hash map, serial)"
     $ nf mapReduce2Vector dat
-  , bench "map-reduce-fold (lazy hash map, parallel)" $ nf basicListP dat
+  , bench "map-reduce-fold ([] Engine, lazy hash map, parallel)" $ nf basicListP dat
   ]
 
 main :: IO ()

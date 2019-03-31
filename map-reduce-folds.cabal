@@ -28,6 +28,7 @@ library
                  , Control.MapReduce.Core
                  , Control.MapReduce.Simple
                  , Control.MapReduce.Engines
+                 , Control.MapReduce.Engines.GroupBy
                  , Control.MapReduce.Engines.List
                  , Control.MapReduce.Engines.Streams
                  , Control.MapReduce.Engines.Vector
@@ -36,6 +37,7 @@ library
   build-depends:   
                  , hashable
                  , parallel
+                 , recursion-schemes
                  , split
                  , streaming
                  , text
