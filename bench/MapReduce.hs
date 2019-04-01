@@ -30,11 +30,16 @@ import           Data.Functor.Identity          ( Identity(Identity)
                                                 )
 import           Data.Sequence                 as Seq
 import           Data.Maybe                     ( catMaybes )
+import           System.Random                  ( newStdGen
+                                                , randomRs
+                                                )
 
-createPairData :: Int -> [(Char, Int)]
-createPairData n =
-  let makePair k = (toEnum $ fromEnum 'A' + k `mod` 26, k `mod` 31)
-  in  L.unfoldr (\m -> if m > n then Nothing else Just (makePair m, m + 1)) 0
+createPairData :: Int -> IO [(Char, Int)]
+createPairData n = do
+  g <- newStdGen
+  let randLabels = L.take n $ randomRs ('A', 'Z') g
+      randInts   = L.take n $ randomRs (1, 100) g
+  return $ L.zip randLabels randInts
 
 -- For example, keep only even numbers, then compute the average of the Int for each label.
 filterPF = even . snd
@@ -96,9 +101,9 @@ mapReduceStream = FL.fold
 mapReduceVector :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceVector = FL.fold
   (MRV.vectorEngine MRV.groupByHashedKey
-                          (MR.Filter filterPF)
-                          (MR.Assign id)
-                          (MR.Reduce reducePF)
+                    (MR.Filter filterPF)
+                    (MR.Assign id)
+                    (MR.Reduce reducePF)
   )
 {-# INLINE mapReduceVector #-}
 
@@ -121,7 +126,8 @@ benchOne dat = bgroup
   , bench "directFoldl" $ nf directFoldl dat
   , bench "mapReduce ([] Engine, strict hash map)" $ nf mapReduceList dat
   , bench "mapReduce ([] Engine, Ord, group by TVL)" $ nf mapReduceListTVL dat
-  , bench "mapReduce (Streaming.Stream Engine, strict hash map)" $ nf mapReduceStream dat
+  , bench "mapReduce (Streaming.Stream Engine, strict hash map)"
+    $ nf mapReduceStream dat
   , bench "mapReduce (Data.Vector Engine, strict hash map)"
     $ nf mapReduceVector dat
   , bench "parMapReduce" $ nf parMapReduce dat
@@ -191,9 +197,9 @@ mapReduce2Stream = FL.fold
 mapReduce2Vector :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 mapReduce2Vector = FL.fold
   (MRV.vectorEngine MRV.groupByHashedKey
-                          (MR.Unpack unpackMF)
-                          (MR.Assign assignMF)
-                          (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
+                    (MR.Unpack unpackMF)
+                    (MR.Assign assignMF)
+                    (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
 
@@ -214,12 +220,14 @@ benchTwo dat = bgroup
     $ nf mapReduce2List dat
   , bench "map-reduce-fold (Streaming.Stream Engine, strict hash map, serial)"
     $ nf mapReduce2Stream dat
-  , bench
-      "map-reduce-fold (Data.Vector Engine, strict hash map, serial)"
+  , bench "map-reduce-fold (Data.Vector Engine, strict hash map, serial)"
     $ nf mapReduce2Vector dat
-  , bench "map-reduce-fold ([] Engine, lazy hash map, parallel)" $ nf basicListP dat
+  , bench "map-reduce-fold ([] Engine, lazy hash map, parallel)"
+    $ nf basicListP dat
   ]
 
 main :: IO ()
-main = defaultMain
-  [benchOne $ createPairData 100000, benchTwo $ createMapRows 100000]
+main = do
+  dat <- createPairData 100000
+  let dat2 = createMapRows 100000
+  defaultMain [benchOne dat, benchTwo dat2]
