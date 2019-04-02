@@ -70,10 +70,9 @@ rsNaiveInsert :: [(Char, Int)] -> [(Char, [Int])]
 rsNaiveInsert = MRG.groupByNaiveInsert
 {-# INLINE rsNaiveInsert #-}
 
-rsNaiveInsert' :: [(Char, Int)] -> [(Char, [Int])]
-rsNaiveInsert' = MRG.groupByNaiveInsert'
-{-# INLINE rsNaiveInsert' #-}
-
+rsNaiveBubble :: [(Char, Int)] -> [(Char, [Int])]
+rsNaiveBubble = MRG.groupByNaiveBubble
+{-# INLINE rsNaiveBubble #-}
 
 rsNaiveInsert2 :: [(Char, Int)] -> [(Char, [Int])]
 rsNaiveInsert2 = MRG.groupByNaiveInsert2
@@ -105,7 +104,7 @@ benchMaps dat = bgroup
   , bench "TVLmerge" $ nf listViaTVL dat
   , bench "List.sort + hand-rolled merging" $ nf listHandRolled dat
   , bench "recursion-schemes, naiveInsert w/grouping" $ nf rsNaiveInsert dat
-  , bench "recursion-schemes, naiveInsert' w/grouping" $ nf rsNaiveInsert' dat
+  , bench "recursion-schemes, naiveBubble w/grouping" $ nf rsNaiveBubble dat
   , bench "recursion-schemes, naiveInsert w/grouping, internal x -> [x]"
     $ nf rsNaiveInsert2 dat
   ]
@@ -123,7 +122,7 @@ main = do
       , ("TVL general merge"        , listViaTVL)
       , ("List.sort + fold to group", listHandRolled)
       , ("recursion-schemes, naive insert + group", rsNaiveInsert)
-      , ("recursion-schemes, naive insert' + group", rsNaiveInsert')
+      , ("recursion-schemes, naive bubble + group", rsNaiveBubble)
       , ( "recursion-schemes, naive insert + group + internal x -> [x]"
         , rsNaiveInsert2
         )

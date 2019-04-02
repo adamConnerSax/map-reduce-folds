@@ -33,7 +33,7 @@ module Control.MapReduce.Engines.GroupBy
     groupByTVL
   , groupByHR
   , groupByNaiveInsert
-  , groupByNaiveInsert'
+  , groupByNaiveBubble
   , groupByNaiveInsert2 -- this one doesn't work!
   )
 where
@@ -54,38 +54,24 @@ import qualified Control.Foldl                 as FL
 
 -- we'll start with recursion schemes with a Naive sort of a list
 
--- we want List (k,[v]) -> List (k,[v])
--- or (Fix (ListF (k,[v])) -> Fix (ListF (k,[v])))
+-- we want [x] -> [x] (where the rhs has equal elements grouped via some (x -> x -> x), e.g. (<>)
+-- or (Fix (ListF x) -> List x)
 -- recall:  fold :: (f a -> a) -> (Fix f -> a)
--- in this case f ~ ListF (k,[v]) and a ~ List (k,[v]) 
--- we need an algebra, (f a -> a), that is  (ListF (k,[v]) (List (k,[v])) -> Fix (ListF (k,[v])))
+-- in this case f ~ (ListF x) and a ~ [x] 
+-- we need an algebra, (f a -> a), that is  (ListF x [x] -> [x])
+-- or (ListF x [x] -> Fix (ListF x))
 -- We note, following <https://www.cs.ox.ac.uk/ralf.hinze/publications/Sorting.pdf>, that this algebra is also an unfold.
 -- recall: unfold (b -> g b) -> (b -> Fix g)
--- in this case, b ~ ListF (k,[v]) (List (k,[v])) and g ~ ListF (k,[v])
--- so the required co-algebra has the form (ListF (k,[v]) [(k,[v])] -> ListF (k,[v]) (ListF (k,[v]) [(k,[v])]))
+-- in this case, b ~ ListF x [x] and g ~ ListF x
+-- so the required co-algebra has the form (ListF x [x] -> ListF x (ListF x [x]))
 coalg1
-  :: Ord k
-  => ListF (k, [v]) [(k, [v])]
-  -> ListF (k, [v]) (ListF (k, [v]) [(k, [v])])
-coalg1 Nil                            = Nil
-coalg1 (Cons a       []             ) = Cons a Nil
-coalg1 (Cons (k, lv) ((k', lv') : l)) = case compare k k' of
-  LT -> Cons (k, lv) (Cons (k', lv') l)
-  GT -> Cons (k', lv') (Cons (k, lv) l)
-  EQ -> Cons (k, lv <> lv') lf
-   where
-    lf = case l of
-      []       -> Nil
-      (x : xs) -> Cons x xs
-
-coalg1'
   :: (a -> a -> Ordering)
   -> (a -> a -> a)
   -> ListF a [a]
   -> ListF a (ListF a [a])
-coalg1' _   _ Nil               = Nil
-coalg1' _   _ (Cons a []      ) = Cons a Nil
-coalg1' cmp f (Cons a (a' : l)) = case cmp a a' of
+coalg1 _   _ Nil               = Nil
+coalg1 _   _ (Cons a []      ) = Cons a Nil
+coalg1 cmp f (Cons a (a' : l)) = case cmp a a' of
   LT -> Cons a (Cons a' l)
   GT -> Cons a' (Cons a l)
   EQ -> Cons (f a a') lf
@@ -93,16 +79,38 @@ coalg1' cmp f (Cons a (a' : l)) = case cmp a a' of
     lf = case l of
       []       -> Nil
       (x : xs) -> Cons x xs
-
+{-# INLINABLE coalg1 #-}
 
 groupByNaiveInsert :: Ord k => [(k, v)] -> [(k, [v])]
-groupByNaiveInsert = RS.fold (RS.unfold coalg1) . fmap promote
-
-groupByNaiveInsert' :: Ord k => [(k, v)] -> [(k, [v])]
-groupByNaiveInsert'
+groupByNaiveInsert
   = RS.fold
-      (RS.unfold (coalg1' (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))))
+      (RS.unfold (coalg1 (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))))
     . fmap promote
+{-# INLINABLE groupByNaiveInsert #-}
+
+-- now we do this in the other order
+-- we want [x] -> [x] (wherer the rhs is grouped according to some (x -> x -> x), e.g., (<>)
+-- or ([x] -> Fix (ListF x)), which is an unfold, with coalgebra ([x] -> ListF x [x])
+-- but this co-algebra is also of the form (Fix (ListF x) -> ListF x [x])
+-- which is a fold with algebra (ListF x (ListF x [x]) -> ListF x [x])
+alg1
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> ListF a (ListF a [a])
+  -> ListF a [a]
+alg1 _   _ Nil                   = Nil
+alg1 _   _ (Cons a Nil         ) = Cons a []
+alg1 cmp f (Cons a (Cons a' as)) = case cmp a a' of
+  LT -> Cons a (a' : as)
+  GT -> Cons a' (a : as)
+  EQ -> Cons (f a a') as
+
+groupByNaiveBubble :: Ord k => [(k, v)] -> [(k, [v])]
+groupByNaiveBubble =
+  RS.unfold (RS.fold (alg1 (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))))
+    . fmap promote
+{-# INLINABLE groupByNaiveBubble #-}
+
 
 -- try to do the promoting in-line
 -- we want [(k,v)] -> [(k,[v])]
@@ -115,16 +123,17 @@ alg2 Nil                           = []
 alg2 (Cons (k, v) []             ) = [(k, [v])]
 alg2 (Cons (k, v) ((k', vs) : xs)) = case compare k k' of
   LT -> (k, [v]) : (k', vs) : xs
-  GT -> (k', vs) : (k, [v]) : xs
+  GT -> (k', vs) : alg2 (Cons (k, v) xs)
   EQ -> (k, v : vs) : xs
+{-# INLINABLE alg2 #-}
 
 groupByNaiveInsert2 :: Ord k => [(k, v)] -> [(k, [v])]
 groupByNaiveInsert2 = RS.fold alg2
-
--- This doesn't work because somehow all but the least element 
+{-# INLINABLE groupByNaiveInsert2 #-}
 
 -- since [(k,[v])] ~ Fix (ListF (k,[v])), alg2 is an unfold :: (b -> g b) -> (b -> Fix g) with g ~ ListF (k,[v]) and b ~ ListF (k,v) [(k,[v])]
 -- for which we need a coalgebra: (ListF (k,v) [(k,[v])] -> ListF (k,[v]) (ListF (k,v) [(k,[v])]))
+-- And I can't write that??
 {-
 coalg2
   :: Ord k
