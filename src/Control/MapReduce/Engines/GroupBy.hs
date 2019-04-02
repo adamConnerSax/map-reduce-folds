@@ -34,6 +34,12 @@ module Control.MapReduce.Engines.GroupBy
   , groupByHR
   , groupByNaiveInsert
   , groupByNaiveBubble
+  , groupByNaiveInsert'
+  , groupByNaiveBubble'
+  , groupByInsert
+  , groupByBubble
+  , groupByInsert'
+  , groupByBubble'
   , groupByNaiveInsert2 -- this one doesn't work!
   )
 where
@@ -48,22 +54,58 @@ import           Data.Functor.Foldable          ( Fix(..)
                                                 )
 import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
-import           Control.Arrow                  ( second )
+import           Control.Arrow                  ( second
+                                                , (&&&)
+                                                , (|||)
+                                                )
 import qualified Control.Foldl                 as FL
 
+{-
+We always (?) need to begin with fmap promote so that the elements are combinable.
+It might be faster to do this in-line but it seems to complicate things...
+-}
+promote :: (k, v) -> (k, [v])
+promote (k, v) = (k, [v])
+{-# INLINABLE promote #-}
 
--- we'll start with recursion schemes with a Naive sort of a list
+-- Fix a fully polymorphic version to our types
+specify
+  :: Ord k
+  => (  ((k, [v]) -> (k, [v]) -> Ordering)
+     -> ((k, [v]) -> (k, [v]) -> (k, [v]))
+     -> t
+     )
+  -> t
+specify f = f (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))
+{-# INLINABLE specify #-}
 
--- we want [x] -> [x] (where the rhs has equal elements grouped via some (x -> x -> x), e.g. (<>)
--- or (Fix (ListF x) -> List x)
--- recall:  fold :: (f a -> a) -> (Fix f -> a)
--- in this case f ~ (ListF x) and a ~ [x] 
--- we need an algebra, (f a -> a), that is  (ListF x [x] -> [x])
--- or (ListF x [x] -> Fix (ListF x))
--- We note, following <https://www.cs.ox.ac.uk/ralf.hinze/publications/Sorting.pdf>, that this algebra is also an unfold.
--- recall: unfold (b -> g b) -> (b -> Fix g)
--- in this case, b ~ ListF x [x] and g ~ ListF x
--- so the required co-algebra has the form (ListF x [x] -> ListF x (ListF x [x]))
+-- aka "project" from Data.Functor.Foldable.Recursive
+unfixList :: [a] -> ListF a [a]
+unfixList []       = Nil
+unfixList (x : xs) = Cons x xs
+{-# INLINABLE unfixList #-}
+
+-- aka "embed" from Data.Functor.Foldable.Corecursive
+fixListF :: ListF a [a] -> [a]
+fixListF Nil         = []
+fixListF (Cons x xs) = x : xs
+{-# INLINABLE fixListF #-}
+
+{-
+Following <https://www.cs.ox.ac.uk/ralf.hinze/publications/Sorting.pdf>,
+we'll start with a Naive sort of a list
+
+we want [x] -> [x] (where the rhs has equal elements grouped via some (x -> x -> x), e.g. (<>)
+or (Fix (ListF x) -> List x)
+recall:  fold :: (f a -> a) -> (Fix f -> a)
+in this case f ~ (ListF x) and a ~ [x] 
+we need an algebra, (f a -> a), that is  (ListF x [x] -> [x])
+or (ListF x [x] -> Fix (ListF x))
+This algebra is also an unfold.
+recall: unfold (b -> g b) -> (b -> Fix g)
+in this case, b ~ ListF x [x] and g ~ ListF x
+so the required co-algebra has the form (ListF x [x] -> ListF x (ListF x [x]))
+-}
 coalg1
   :: (a -> a -> Ordering)
   -> (a -> a -> a)
@@ -74,25 +116,20 @@ coalg1 _   _ (Cons a []      ) = Cons a Nil
 coalg1 cmp f (Cons a (a' : l)) = case cmp a a' of
   LT -> Cons a (Cons a' l)
   GT -> Cons a' (Cons a l)
-  EQ -> Cons (f a a') lf
-   where
-    lf = case l of
-      []       -> Nil
-      (x : xs) -> Cons x xs
+  EQ -> Cons (f a a') (RS.project l)
 {-# INLINABLE coalg1 #-}
 
 groupByNaiveInsert :: Ord k => [(k, v)] -> [(k, [v])]
-groupByNaiveInsert
-  = RS.fold
-      (RS.unfold (coalg1 (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))))
-    . fmap promote
+groupByNaiveInsert = RS.fold (RS.unfold (specify coalg1)) . fmap promote
 {-# INLINABLE groupByNaiveInsert #-}
 
--- now we do this in the other order
--- we want [x] -> [x] (wherer the rhs is grouped according to some (x -> x -> x), e.g., (<>)
--- or ([x] -> Fix (ListF x)), which is an unfold, with coalgebra ([x] -> ListF x [x])
--- but this co-algebra is also of the form (Fix (ListF x) -> ListF x [x])
--- which is a fold with algebra (ListF x (ListF x [x]) -> ListF x [x])
+{-
+now we do this in the other order
+we want [x] -> [x] (wherer the rhs is grouped according to some (x -> x -> x), e.g., (<>)
+or ([x] -> Fix (ListF x)), which is an unfold, with coalgebra ([x] -> ListF x [x])
+but this co-algebra is also of the form (Fix (ListF x) -> ListF x [x])
+which is a fold with algebra (ListF x (ListF x [x]) -> ListF x [x])
+-}
 alg1
   :: (a -> a -> Ordering)
   -> (a -> a -> a)
@@ -104,20 +141,140 @@ alg1 cmp f (Cons a (Cons a' as)) = case cmp a a' of
   LT -> Cons a (a' : as)
   GT -> Cons a' (a : as)
   EQ -> Cons (f a a') as
+{-# INLINABLE alg1 #-}
 
 groupByNaiveBubble :: Ord k => [(k, v)] -> [(k, [v])]
-groupByNaiveBubble =
-  RS.unfold (RS.fold (alg1 (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))))
-    . fmap promote
+groupByNaiveBubble = RS.unfold (RS.fold (specify alg1)) . fmap promote
 {-# INLINABLE groupByNaiveBubble #-}
 
+{-
+Some notes at this point:
+1. Naive bubble is much faster than naive insert.  I think because we do the combining sooner?
+2. coalg1 and and alg1 are almost the same. Let's explore this for a bit, ignoring the cmp and combine arguments
+We look at the type of coalg after unrolling one level of Fix, i.e.,
+since [a] = Fix (ListF a), we have `unfix [a] :: ListF a (Fix (ListF a)) ~ ListF a [a]
+coalg1 :: ListF a [a] -> ListF a (ListF a [a]), so (coalg1 . fmap Fix) :: ListF a (ListF a [a]) -> ListF a (ListF a [a])
+alg1 ::  ListF a (ListF a [a]) -> ListF a [a], so (fmap unfix . alg1) ::  ListF a (ListF a [a]) -> ListF a (ListF a [a])
+which suggests that there is some function, following the paper, we'll call it "swap" such that
+coalg1 . fmap Fix = swap = fmap unfix . alg1, or coalg1 = swap . fmap unfix and alg1 = fmap Fix . swap
+Because the lhs and rhs lists look the same, this looks like an identity.  But the rhs is sorted, while the lhs is not.
+-}
+swap
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> ListF a (ListF a [a])
+  -> ListF a (ListF a [a])
+swap _   _ Nil                   = Nil
+swap _   _ (Cons a Nil         ) = Cons a Nil
+swap cmp f (Cons a (Cons a' as)) = case cmp a a' of
+  LT -> Cons a (Cons a' as) -- already in order
+  GT -> Cons a' (Cons a as) -- need to swap
+  EQ -> Cons (f a a') (RS.project as)
+{-# INLINABLE swap #-}
 
--- try to do the promoting in-line
--- we want [(k,v)] -> [(k,[v])]
--- or (Fix (ListF (k,v)) -> Fix (ListF (k,[v])))
--- as a fold :: (f a -> a) -> (Fix f -> a) with f ~ ListF (k,v) and a ~ [(k,[v])]
--- so the algebra has the form ListF (k,v) [(k,[v])] -> [(k,[v])] or ListF (k,v) [(k,[v])] -> Fix (ListF (k,[v]))
+groupByNaiveInsert' :: Ord k => [(k, v)] -> [(k, [v])]
+groupByNaiveInsert' =
+  RS.fold (RS.unfold (specify swap . fmap RS.project)) . fmap promote
+{-# INLINABLE groupByNaiveInsert' #-}
 
+groupByNaiveBubble' :: Ord k => [(k, v)] -> [(k, [v])]
+groupByNaiveBubble' =
+  RS.unfold (RS.fold (fmap RS.embed . specify swap)) . fmap promote
+{-# INLINABLE groupByNaiveBubble' #-}
+
+
+{-
+As pointed out in Hinze, this is inefficient because the rhs list is already sorted.
+So in the non-swap cases, we need not do any more work.
+The simplest way to manage that is to use an apomorphism (an unfold) in order to stop the recursion in those cases.
+The types:
+fold (apo coalg) :: [a] -> [a] ~ Fix (ListF a) -> [a]
+apo coalg :: (ListF a [a] -> [a]) ~ ListF a [a] -> Fix (ListF a)
+coalg :: (ListF a [a] -> ListF a (Either [a] (ListF a [a]))
+NB: The "Left" constructor of Either stops the recursion in that branch where the "Right" constructor continues
+-}
+apoCoalg
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> ListF a [a]
+  -> ListF a (Either [a] (ListF a [a]))
+apoCoalg _   _ Nil                = Nil
+apoCoalg _   _ (Cons a []       ) = Cons a (Left []) -- could also be 'Cons a (Right Nil)'
+apoCoalg cmp f (Cons a (a' : as)) = case cmp a a' of
+  LT -> Cons a (Left (a' : as)) -- stop recursing here
+  GT -> Cons a' (Right (Cons a as)) -- keep recursing, a may not be in the right place yet!
+  EQ -> Cons (f a a') (Left as) -- ??
+{-# INLINABLE apoCoalg #-}
+
+groupByInsert :: Ord k => [(k, v)] -> [(k, [v])]
+groupByInsert = RS.fold (RS.apo (specify apoCoalg)) . fmap promote
+{-# INLINABLE groupByInsert #-}
+
+{-
+Now we go the other way and then get both versions as before.
+unfold (para alg) :: [a] -> [a] ~ [a] -> Fix (ListF a)
+para alg :: [a] -> ListF a [a] ~ Fix (ListF a) -> ListF a [a]
+alg :: ListF a ([a],ListF a [a]) -> ListF a [a]
+-}
+paraAlg
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> ListF a ([a], ListF a [a])
+  -> ListF a [a]
+paraAlg _   _ Nil                        = Nil
+paraAlg _   _ (Cons a (as, Nil        )) = Cons a []
+paraAlg cmp f (Cons a (as, Cons a' as')) = case cmp a a' of
+  LT -> Cons a as
+  GT -> Cons a' (a : as')
+  EQ -> Cons (f a a') as'
+{-# INLINABLE paraAlg #-}
+
+groupByBubble :: Ord k => [(k, v)] -> [(k, [v])]
+groupByBubble = RS.unfold (RS.para (specify paraAlg)) . fmap promote
+{-# INLINABLE groupByBubble #-}
+
+{-
+We observe, as before, apoCoalg and paraAlg are very similar, though it's less clear here.
+But let's unroll one level of Fix:
+apoCoalg :: ListF a (ListF a [a]) -> ListF (Either [a] (ListF a [a]))
+paraAlg :: ListF a ([a], ListF a [a]) -> ListF a (ListF a [a])
+So, if we had
+swop :: ListF a ([a], ListF a [a]) -> ListF (Either [a] (ListF a [a]))
+we could write
+apoCoalg = swop . fmap (RS.embed &&& id)
+paraAlg = fmap (id ||| RS.embed) . swop 
+-}
+
+swop
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> ListF a ([a], ListF a [a])
+  -> ListF a (Either [a] (ListF a [a]))
+swop _   _ Nil                        = Nil
+swop _   _ (Cons a (as, Nil        )) = Cons a (Left as)
+swop cmp f (Cons a (as, Cons a' as')) = case cmp a a' of
+  LT -> Cons a (Left as)
+  GT -> Cons a' (Right (Cons a as'))
+  EQ -> Cons (f a a') (Left as')
+{-# INLINABLE swop #-}
+
+groupByInsert' :: Ord k => [(k, v)] -> [(k, [v])]
+groupByInsert' =
+  RS.fold (RS.apo (specify swop . fmap (id &&& RS.project))) . fmap promote
+{-# INLINABLE groupByInsert' #-}
+
+groupByBubble' :: Ord k => [(k, v)] -> [(k, [v])]
+groupByBubble' =
+  RS.unfold (RS.para (fmap (id ||| RS.embed) . specify swop)) . fmap promote
+{-# INLINABLE groupByBubble' #-}
+
+{-
+What if we try to do the x -> [x] in-line?
+We want [(k,v)] -> [(k,[v])]
+or (Fix (ListF (k,v)) -> Fix (ListF (k,[v])))
+as a fold :: (f a -> a) -> (Fix f -> a) with f ~ ListF (k,v) and a ~ [(k,[v])]
+so the algebra has the form ListF (k,v) [(k,[v])] -> [(k,[v])] or ListF (k,v) [(k,[v])] -> Fix (ListF (k,[v]))
+-}
 alg2 :: Ord k => ListF (k, v) [(k, [v])] -> [(k, [v])]
 alg2 Nil                           = []
 alg2 (Cons (k, v) []             ) = [(k, [v])]
@@ -131,25 +288,6 @@ groupByNaiveInsert2 :: Ord k => [(k, v)] -> [(k, [v])]
 groupByNaiveInsert2 = RS.fold alg2
 {-# INLINABLE groupByNaiveInsert2 #-}
 
--- since [(k,[v])] ~ Fix (ListF (k,[v])), alg2 is an unfold :: (b -> g b) -> (b -> Fix g) with g ~ ListF (k,[v]) and b ~ ListF (k,v) [(k,[v])]
--- for which we need a coalgebra: (ListF (k,v) [(k,[v])] -> ListF (k,[v]) (ListF (k,v) [(k,[v])]))
--- And I can't write that??
-{-
-coalg2
-  :: Ord k
-  => ListF (k, v) [(k, [v])]
-  -> ListF (k, [v]) (ListF (k, v) [(k, [v])])
-coalg2 Nil                          = Nil
-coalg2 (Cons (k, v) []            ) = Cons (k, [v]) Nil
-coalg2 (Cons (k, v) ((k', vs) : l)) = case compare k k' of
-  LT -> Cons (k, [v]) (Cons (k', vs) l)
-  GT -> Cons (k', vs) (Cons (k, v) l)
-  EQ -> Cons (k, v : vs) lf
-   where
-    lf = case l of
-      []       -> Nil
-      (x : xs) -> Cons x xs
--}
 
 
 
@@ -163,8 +301,6 @@ type Tree a = Fix (TreeF a)
 -}
 -- fold a Foldable f => f (k,v) into Tree (k,[v])
 -- we need an algebra (Fix () -> Tree (k,[v]))
-promote :: (k, v) -> (k, [v])
-promote (k, v) = (k, [v])
 
 -- hand-rolled from list functions
 groupByHR :: Ord k => [(k, v)] -> [(k, [v])]

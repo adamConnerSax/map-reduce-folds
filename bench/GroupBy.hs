@@ -74,6 +74,30 @@ rsNaiveBubble :: [(Char, Int)] -> [(Char, [Int])]
 rsNaiveBubble = MRG.groupByNaiveBubble
 {-# INLINE rsNaiveBubble #-}
 
+rsNaiveInsert' :: [(Char, Int)] -> [(Char, [Int])]
+rsNaiveInsert' = MRG.groupByNaiveInsert'
+{-# INLINE rsNaiveInsert' #-}
+
+rsNaiveBubble' :: [(Char, Int)] -> [(Char, [Int])]
+rsNaiveBubble' = MRG.groupByNaiveBubble'
+{-# INLINE rsNaiveBubble' #-}
+
+rsInsert :: [(Char, Int)] -> [(Char, [Int])]
+rsInsert = MRG.groupByInsert
+{-# INLINE rsInsert #-}
+
+rsBubble :: [(Char, Int)] -> [(Char, [Int])]
+rsBubble = MRG.groupByBubble
+{-# INLINE rsBubble #-}
+
+rsInsert' :: [(Char, Int)] -> [(Char, [Int])]
+rsInsert' = MRG.groupByInsert'
+{-# INLINE rsInsert' #-}
+
+rsBubble' :: [(Char, Int)] -> [(Char, [Int])]
+rsBubble' = MRG.groupByBubble'
+{-# INLINE rsBubble' #-}
+
 rsNaiveInsert2 :: [(Char, Int)] -> [(Char, [Int])]
 rsNaiveInsert2 = MRG.groupByNaiveInsert2
 {-# INLINE rsNaiveInsert2 #-}
@@ -104,7 +128,18 @@ benchMaps dat = bgroup
   , bench "TVLmerge" $ nf listViaTVL dat
   , bench "List.sort + hand-rolled merging" $ nf listHandRolled dat
   , bench "recursion-schemes, naiveInsert w/grouping" $ nf rsNaiveInsert dat
+  , bench "recursion-schemes, naiveInsert (grouping swap)"
+    $ nf rsNaiveInsert' dat
   , bench "recursion-schemes, naiveBubble w/grouping" $ nf rsNaiveBubble dat
+  , bench "recursion-schemes, naiveBubble (grouping swap version)"
+    $ nf rsNaiveBubble' dat
+  , bench "recursion-schemes, insert (fold of grouping apo)" $ nf rsInsert dat
+  , bench "recursion-schemes, bubble (unfold of grouping para)"
+    $ nf rsBubble dat
+  , bench "recursion-schemes, insert (fold of grouping apo, swop version)"
+    $ nf rsInsert' dat
+  , bench "recursion-schemes, bubble (unfold of grouping para, swop version)"
+    $ nf rsBubble' dat
   , bench "recursion-schemes, naiveInsert w/grouping, internal x -> [x]"
     $ nf rsNaiveInsert2 dat
   ]
@@ -122,7 +157,21 @@ main = do
       , ("TVL general merge"        , listViaTVL)
       , ("List.sort + fold to group", listHandRolled)
       , ("recursion-schemes, naive insert + group", rsNaiveInsert)
+      , ( "recursion-schemes, naive insert (grouping swap version)"
+        , rsNaiveInsert'
+        )
       , ("recursion-schemes, naive bubble + group", rsNaiveBubble)
+      , ( "recursion-schemes, naive bubble (grouping swap version)"
+        , rsNaiveBubble'
+        )
+      , ("recursion-schemes, insert (fold of grouping apo)"   , rsInsert)
+      , ("recursion-schemes, bubble (unfold of grouping para)", rsBubble)
+      , ( "recursion-schemes, insert (fold of grouping apo, swop version)"
+        , rsInsert'
+        )
+      , ( "recursion-schemes, bubble (unfold of grouping para, swop version)"
+        , rsBubble'
+        )
       , ( "recursion-schemes, naive insert + group + internal x -> [x]"
         , rsNaiveInsert2
         )
