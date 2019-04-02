@@ -98,6 +98,10 @@ rsBubble' :: [(Char, Int)] -> [(Char, [Int])]
 rsBubble' = MRG.groupByBubble'
 {-# INLINE rsBubble' #-}
 
+rsTree1 :: [(Char, Int)] -> [(Char, [Int])]
+rsTree1 = MRG.groupByTree1
+{-# INLINE rsTree1 #-}
+
 rsNaiveInsert2 :: [(Char, Int)] -> [(Char, [Int])]
 rsNaiveInsert2 = MRG.groupByNaiveInsert2
 {-# INLINE rsNaiveInsert2 #-}
@@ -140,6 +144,8 @@ benchMaps dat = bgroup
     $ nf rsInsert' dat
   , bench "recursion-schemes, bubble (unfold of grouping para, swop version)"
     $ nf rsBubble' dat
+  , bench "recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
+    $ nf rsTree1 dat
   , bench "recursion-schemes, naiveInsert w/grouping, internal x -> [x]"
     $ nf rsNaiveInsert2 dat
   ]
@@ -171,6 +177,9 @@ main = do
         )
       , ( "recursion-schemes, bubble (unfold of grouping para, swop version)"
         , rsBubble'
+        )
+      , ( "recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
+        , rsTree1
         )
       , ( "recursion-schemes, naive insert + group + internal x -> [x]"
         , rsNaiveInsert2

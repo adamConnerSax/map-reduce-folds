@@ -13,6 +13,10 @@
 {-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE DeriveFoldable        #-}
+{-# LANGUAGE DeriveTraversable     #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Engines.GroupBy
@@ -40,6 +44,7 @@ module Control.MapReduce.Engines.GroupBy
   , groupByBubble
   , groupByInsert'
   , groupByBubble'
+  , groupByTree1
   , groupByNaiveInsert2 -- this one doesn't work!
   )
 where
@@ -52,6 +57,7 @@ import           Data.Functor.Foldable          ( Fix(..)
                                                 , unfix
                                                 , ListF(..)
                                                 )
+import           Data.Functor.Foldable.TH      as RS
 import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
 import           Control.Arrow                  ( second
@@ -268,6 +274,113 @@ groupByBubble' =
   RS.unfold (RS.para (fmap (id ||| RS.embed) . specify swop)) . fmap promote
 {-# INLINABLE groupByBubble' #-}
 
+
+
+
+{-
+Now we try to do better by unfolding to a Tree and folding to a list
+which makes for fewer comparisons.
+We begin by unfolding to a Tree.
+unfold coalg :: ([a] -> Tree a) ~ ([a] -> Fix (TreeF a))
+coalg :: ([a] -> TreeF a [a])
+and we note that this coalgebra is a fold
+fold alg :: ([a] -> TreeF a [a]) ~ (Fix (ListF a) -> TreeF a [a])
+alg :: (ListF a (TreeF a [a]) -> TreeF a [a])
+-}
+
+data Tree a where
+  Tip :: Tree a
+  Leaf :: a -> Tree a
+  Fork :: Tree a -> Tree a -> Tree a deriving (Show)
+
+RS.makeBaseFunctor ''Tree
+
+
+toTreeAlg
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> ListF a (TreeF a [a])
+  -> TreeF a [a]
+toTreeAlg _   _ Nil                 = TipF
+toTreeAlg _   _ (Cons a TipF      ) = LeafF a
+toTreeAlg cmp f (Cons a (LeafF a')) = case cmp a a' of
+  LT -> ForkF [a] [a']
+  GT -> ForkF [a'] [a]
+  EQ -> LeafF (f a a')
+toTreeAlg cmp f (Cons a (ForkF ls rs)) = ForkF (a : rs) ls
+
+
+toTreeCoalg :: (a -> a -> Ordering) -> (a -> a -> a) -> [a] -> TreeF a [a]
+toTreeCoalg cmp f = RS.fold (toTreeAlg cmp f)
+{-
+toTreeCoalg _   _ []            = TipF
+toTreeCoalg _   _ (a      : []) = LeafF a
+toTreeCoalg cmp f (a : a' : as) = case cmp a a' of
+  LT -> ForkF ([a]) (a' : as)
+  GT -> ForkF (a : as) ([a'])
+  EQ -> toTreeCoalg cmp f ((f a a') : as)
+{-# INLINABLE toTreeCoalg #-}
+-}
+
+{-
+fold alg :: (Tree a -> [a]) ~ (Fix (TreeF a) -> [a])
+alg :: (TreeF a [a] -> [a]) ~ (TreeF a [a] -> Fix (ListF a))
+and we note that this algebra is an unfold
+unfold coalg :: TreeF a [a] -> Fix (ListF a)
+coalg :: TreeF a [a] -> ListF a (TreeF a [a])
+-}
+
+toListCoalg
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> TreeF a [a]
+  -> ListF a (TreeF a [a])
+toListCoalg _   _ TipF                        = Nil
+toListCoalg _   _ (LeafF a                  ) = Cons a TipF
+toListCoalg _   _ (ForkF []       []        ) = Nil
+toListCoalg _   _ (ForkF (a : as) []        ) = Cons a (ForkF [] as)
+toListCoalg _   _ (ForkF []       (a  : as )) = Cons a (ForkF [] as)
+toListCoalg cmp f (ForkF (a : as) (a' : as')) = case cmp a a' of
+  LT -> Cons a (ForkF as (a' : as'))
+  GT -> Cons a' (ForkF (a : as) as')
+  EQ -> Cons (f a a') (ForkF as as')
+{-# INLINABLE toListCoalg #-}
+
+toListAlg :: (a -> a -> Ordering) -> (a -> a -> a) -> TreeF a [a] -> [a]
+toListAlg cmp f = RS.unfold (toListCoalg cmp f)
+{-# INLINABLE toListAlg #-}
+
+{-
+toListAlg TipF           = []
+toListAlg (LeafF a     ) = [a]
+toListAlg (ForkF as as') = as ++ as'
+
+-}
+
+groupByTree1 :: Ord k => [(k, v)] -> [(k, [v])]
+groupByTree1 = RS.hylo (specify toListAlg) (specify toTreeCoalg) . fmap promote
+{-# INLINABLE groupByTree1 #-}
+
+{-
+treeCoalg
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> ListF a (Tree a)
+  -> TreeF a (ListF a (Tree a))
+treeCoalg _   _ Nil        = TNil
+treeCoalg cmp f (Cons a t) = case RS.project t of
+  TNil    -> Leaf a
+  Leaf a' -> case compare a a' of
+    LT -> Fork (Cons a tNil) (Cons a' tNil)
+    GT -> Fork (Cons a' tNil) (Cons a tNil)
+    EQ -> Leaf (Cons (f a a') tNil)
+  Fork tl tr -> Fork (Cons a tr) (Cons tl) -- reverse the branches for balance ??
+
+listToGroupedTree :: [(k, v)] -> Tree (k, [v])
+listToGroupedTree = RS.fold (RS.unfold treeCoalg) . fmap promote
+-}
+
+
 {-
 What if we try to do the x -> [x] in-line?
 We want [(k,v)] -> [(k,[v])]
@@ -287,6 +400,10 @@ alg2 (Cons (k, v) ((k', vs) : xs)) = case compare k k' of
 groupByNaiveInsert2 :: Ord k => [(k, v)] -> [(k, [v])]
 groupByNaiveInsert2 = RS.fold alg2
 {-# INLINABLE groupByNaiveInsert2 #-}
+
+
+
+
 
 
 
