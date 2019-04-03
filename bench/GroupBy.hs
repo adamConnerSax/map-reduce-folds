@@ -4,7 +4,7 @@
 {-# LANGUAGE RankNTypes            #-}
 import           Criterion.Main
 import           Criterion
-
+import qualified Weigh                         as W
 
 import           Control.MapReduce             as MR
 import           Control.MapReduce.Engines.GroupBy
@@ -122,69 +122,63 @@ check reference toCheck = do
             (name ++ " different!\n ref=\n" ++ show refGS ++ "\n" ++ show gs)
   mapM_ checkOne toCheck
 
-benchMaps dat = bgroup
-  (show (L.length dat) ++ " of [(Char, Int)]")
-  [ bench "justSort" $ nf justSort dat
-  , bench "listViaStrictMap" $ nf listViaStrictMap dat
-  , bench "listViaLazyMap" $ nf listViaLazyMap dat
-  , bench "listViaStrictHashMap" $ nf listViaStrictHashMap dat
-  , bench "listViaLazyHashMap" $ nf listViaLazyHashMap dat
-  , bench "TVLmerge" $ nf listViaTVL dat
-  , bench "List.sort + hand-rolled merging" $ nf listHandRolled dat
-  , bench "recursion-schemes, naiveInsert w/grouping" $ nf rsNaiveInsert dat
-  , bench "recursion-schemes, naiveInsert (grouping swap)"
-    $ nf rsNaiveInsert' dat
-  , bench "recursion-schemes, naiveBubble w/grouping" $ nf rsNaiveBubble dat
-  , bench "recursion-schemes, naiveBubble (grouping swap version)"
-    $ nf rsNaiveBubble' dat
-  , bench "recursion-schemes, insert (fold of grouping apo)" $ nf rsInsert dat
-  , bench "recursion-schemes, bubble (unfold of grouping para)"
-    $ nf rsBubble dat
-  , bench "recursion-schemes, insert (fold of grouping apo, swop version)"
-    $ nf rsInsert' dat
-  , bench "recursion-schemes, bubble (unfold of grouping para, swop version)"
-    $ nf rsBubble' dat
-  , bench "recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
-    $ nf rsTree1 dat
-  , bench "recursion-schemes, naiveInsert w/grouping, internal x -> [x]"
-    $ nf rsNaiveInsert2 dat
+toTry :: [(String, [(Char, Int)] -> [(Char, [Int])])]
+toTry =
+  [ ( "strict map"
+    , listViaStrictMap
+    )
+{-    
+    , ("lazy map"                 , listViaLazyMap)
+    , ("strict hash map"          , listViaStrictHashMap)
+    , ("lazy hash map"            , listViaLazyHashMap)
+    , ("TVL general merge"        , listViaTVL)
+    , ("List.sort + fold to group", listHandRolled)
+    , ("recursion-schemes, naive insert + group", rsNaiveInsert)
+-}
+  , ( "recursion-schemes, naive insert (grouping swap version)"
+    , rsNaiveInsert'
+    )
+{-      
+    , ("recursion-schemes, naive bubble + group", rsNaiveBubble)
+-}
+  , ( "recursion-schemes, naive bubble (grouping swap version)"
+    , rsNaiveBubble'
+    )
+{-      
+    , ("recursion-schemes, insert (fold of grouping apo)"   , rsInsert)
+-}
+  , ("recursion-schemes, bubble (unfold of grouping para)", rsBubble)
+{-    
+    , ( "recursion-schemes, insert (fold of grouping apo, swop version)"
+      , rsInsert'
+      )
+    , ( "recursion-schemes, bubble (unfold of grouping para, swop version)"
+      , rsBubble'
+      )
+    , ( "recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
+      , rsTree1
+      )
+    , ( "recursion-schemes, naive insert + group + internal x -> [x]"
+      , rsNaiveInsert2
+      )
+-}
   ]
+
+benchAll dat toTry = defaultMain
+  [ bgroup (show (L.length dat) ++ " of [(Char, Int)]")
+           (fmap (\(n, f) -> (bench n $ nf f dat)) toTry)
+  ]
+
+checkAll dat toTry =
+  check (listViaStrictMap dat) (fmap (\(k, f) -> (k, f dat)) toTry)
+
+{- This is hanging...
+weighAll dat toTry = W.mainWith $ mapM_ (\(n, f) -> W.func n f dat) toTry
+-}
 
 main :: IO ()
 main = do
   dat <- createPairData 50000
-  check
-    (listViaStrictMap dat)
-    (fmap
-      (\(k, f) -> (k, f dat))
-      [ ("lazy map"                 , listViaLazyMap)
-      , ("strict hash map"          , listViaStrictHashMap)
-      , ("lazy hash map"            , listViaLazyHashMap)
-      , ("TVL general merge"        , listViaTVL)
-      , ("List.sort + fold to group", listHandRolled)
-      , ("recursion-schemes, naive insert + group", rsNaiveInsert)
-      , ( "recursion-schemes, naive insert (grouping swap version)"
-        , rsNaiveInsert'
-        )
-      , ("recursion-schemes, naive bubble + group", rsNaiveBubble)
-      , ( "recursion-schemes, naive bubble (grouping swap version)"
-        , rsNaiveBubble'
-        )
-      , ("recursion-schemes, insert (fold of grouping apo)"   , rsInsert)
-      , ("recursion-schemes, bubble (unfold of grouping para)", rsBubble)
-      , ( "recursion-schemes, insert (fold of grouping apo, swop version)"
-        , rsInsert'
-        )
-      , ( "recursion-schemes, bubble (unfold of grouping para, swop version)"
-        , rsBubble'
-        )
-      , ( "recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
-        , rsTree1
-        )
-      , ( "recursion-schemes, naive insert + group + internal x -> [x]"
-        , rsNaiveInsert2
-        )
-      ]
-    )
+  checkAll dat toTry
   putStrLn ""
-  defaultMain [benchMaps dat]
+--  benchAll dat toTry

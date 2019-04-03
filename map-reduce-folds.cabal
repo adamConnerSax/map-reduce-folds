@@ -34,7 +34,7 @@ library
                  , Control.MapReduce.Engines.Vector
                  , Control.MapReduce.Engines.Parallel
 
-  build-depends:   
+  build-depends:   dlist
                  , hashable
                  , parallel
                  , recursion-schemes
@@ -63,8 +63,9 @@ benchmark bench-groupBy
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench
   other-modules:       
-  ghc-options:         -O3
+  ghc-options:         -O2 -fspecialise-aggressively
+                       -- -ddump-to-file -ddump-simpl -dsuppress-idinfo -dsuppress-coercions -dsuppress-type-applications -dsuppress-uniques -dsuppress-module-prefixes
 --                       -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches
   main-is:             GroupBy.hs
-  build-depends:       map-reduce-folds, foldl, base, criterion, unordered-containers, deepseq, text, random
+  build-depends:       map-reduce-folds, foldl, base, criterion, unordered-containers, deepseq, text, random, weigh
   default-language:    Haskell2010                   

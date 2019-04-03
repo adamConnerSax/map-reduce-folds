@@ -17,6 +17,7 @@
 {-# LANGUAGE DeriveFoldable        #-}
 {-# LANGUAGE DeriveTraversable     #-}
 {-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE OverloadedLists       #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Engines.GroupBy
@@ -45,10 +46,12 @@ module Control.MapReduce.Engines.GroupBy
   , groupByInsert'
   , groupByBubble'
   , groupByTree1
-  , groupByNaiveInsert2 -- this one doesn't work!
+  , groupByNaiveInsert2
   )
 where
 
+import qualified Data.DList                    as DL
+import           Data.DList                     ( DList )
 import           Data.Function                  ( on )
 import           Data.Maybe                     ( fromMaybe )
 import qualified Data.List                     as L
@@ -70,19 +73,24 @@ import qualified Control.Foldl                 as FL
 We always (?) need to begin with fmap promote so that the elements are combinable.
 It might be faster to do this in-line but it seems to complicate things...
 -}
-promote :: (k, v) -> (k, [v])
-promote (k, v) = (k, [v])
+promote :: (k, v) -> (k, DList v)
+promote !(!k, !v) = (k, [v])
 {-# INLINABLE promote #-}
+
+unDList = fmap (second DL.toList)
+
+data Pair a b = Pair !a !b
 
 -- Fix a fully polymorphic version to our types
 specify
   :: Ord k
-  => (  ((k, [v]) -> (k, [v]) -> Ordering)
-     -> ((k, [v]) -> (k, [v]) -> (k, [v]))
+  => (  ((k, DList v) -> (k, DList v) -> Ordering)
+     -> ((k, DList v) -> (k, DList v) -> (k, DList v))
      -> t
      )
   -> t
-specify f = f (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))
+specify f = g
+  where g = f (compare `on` fst) (\(k, x) (_, y) -> (k, DL.append x y))
 {-# INLINABLE specify #-}
 
 {-
@@ -105,16 +113,17 @@ coalg1
   -> (a -> a -> a)
   -> ListF a [a]
   -> ListF a (ListF a [a])
-coalg1 _   _ Nil               = Nil
-coalg1 _   _ (Cons a []      ) = Cons a Nil
-coalg1 cmp f (Cons a (a' : l)) = case cmp a a' of
+coalg1 _   _ Nil                 = Nil
+coalg1 _   _ (Cons !a []       ) = Cons a Nil
+coalg1 cmp f (Cons !a (!a' : l)) = case cmp a a' of
   LT -> Cons a (Cons a' l)
   GT -> Cons a' (Cons a l)
   EQ -> Cons (f a a') (RS.project l)
 {-# INLINABLE coalg1 #-}
 
 groupByNaiveInsert :: Ord k => [(k, v)] -> [(k, [v])]
-groupByNaiveInsert = RS.fold (RS.unfold (specify coalg1)) . fmap promote
+groupByNaiveInsert =
+  unDList . RS.fold (RS.unfold (specify coalg1)) . fmap promote
 {-# INLINABLE groupByNaiveInsert #-}
 
 {-
@@ -129,16 +138,17 @@ alg1
   -> (a -> a -> a)
   -> ListF a (ListF a [a])
   -> ListF a [a]
-alg1 _   _ Nil                   = Nil
-alg1 _   _ (Cons a Nil         ) = Cons a []
-alg1 cmp f (Cons a (Cons a' as)) = case cmp a a' of
+alg1 _   _ Nil                     = Nil
+alg1 _   _ (Cons !a Nil          ) = Cons a []
+alg1 cmp f (Cons !a (Cons !a' as)) = case cmp a a' of
   LT -> Cons a (a' : as)
   GT -> Cons a' (a : as)
   EQ -> Cons (f a a') as
 {-# INLINABLE alg1 #-}
 
 groupByNaiveBubble :: Ord k => [(k, v)] -> [(k, [v])]
-groupByNaiveBubble = RS.unfold (RS.fold (specify alg1)) . fmap promote
+groupByNaiveBubble =
+  unDList . RS.unfold (RS.fold (specify alg1)) . fmap promote
 {-# INLINABLE groupByNaiveBubble #-}
 
 {-
@@ -168,12 +178,12 @@ swap cmp f (Cons a (Cons a' as)) = case cmp a a' of
 
 groupByNaiveInsert' :: Ord k => [(k, v)] -> [(k, [v])]
 groupByNaiveInsert' =
-  RS.fold (RS.unfold (specify swap . fmap RS.project)) . fmap promote
+  unDList . RS.fold (RS.unfold (specify swap . fmap RS.project)) . fmap promote
 {-# INLINABLE groupByNaiveInsert' #-}
 
 groupByNaiveBubble' :: Ord k => [(k, v)] -> [(k, [v])]
 groupByNaiveBubble' =
-  RS.unfold (RS.fold (fmap RS.embed . specify swap)) . fmap promote
+  unDList . RS.unfold (RS.fold (fmap RS.embed . specify swap)) . fmap promote
 {-# INLINABLE groupByNaiveBubble' #-}
 
 
@@ -201,7 +211,7 @@ apoCoalg cmp f (Cons a (a' : as)) = case cmp a a' of
 {-# INLINABLE apoCoalg #-}
 
 groupByInsert :: Ord k => [(k, v)] -> [(k, [v])]
-groupByInsert = RS.fold (RS.apo (specify apoCoalg)) . fmap promote
+groupByInsert = unDList . RS.fold (RS.apo (specify apoCoalg)) . fmap promote
 {-# INLINABLE groupByInsert #-}
 
 {-
@@ -215,16 +225,16 @@ paraAlg
   -> (a -> a -> a)
   -> ListF a ([a], ListF a [a])
   -> ListF a [a]
-paraAlg _   _ Nil                       = Nil
-paraAlg _   _ (Cons a (_, Nil        )) = Cons a []
-paraAlg cmp f (Cons a (_, Cons a' as')) = case cmp a a' of
+paraAlg _   _ Nil                         = Nil
+paraAlg _   _ (Cons !a (_, Nil         )) = Cons a []
+paraAlg cmp f (Cons !a (_, Cons !a' as')) = case cmp a a' of
   LT -> Cons a (a' : as')
   GT -> Cons a' (a : as')
   EQ -> Cons (f a a') as'
 {-# INLINABLE paraAlg #-}
 
 groupByBubble :: Ord k => [(k, v)] -> [(k, [v])]
-groupByBubble = RS.unfold (RS.para (specify paraAlg)) . fmap promote
+groupByBubble = unDList . RS.unfold (RS.para (specify paraAlg)) . fmap promote
 {-# INLINABLE groupByBubble #-}
 
 {-
@@ -235,7 +245,7 @@ paraAlg :: ListF a ([a], ListF a [a]) -> ListF a (ListF a [a])
 So, if we had
 swop :: ListF a ([a], ListF a [a]) -> ListF (Either [a] (ListF a [a]))
 we could write
-apoCoalg = swop . fmap (RS.embed &&& id)
+apoCoalg = swop . fmap (id &&& RS.project)
 paraAlg = fmap (id ||| RS.embed) . swop 
 -}
 
@@ -244,9 +254,9 @@ swop
   -> (a -> a -> a)
   -> ListF a ([a], ListF a [a])
   -> ListF a (Either [a] (ListF a [a]))
-swop _   _ Nil                        = Nil
-swop _   _ (Cons a (as, Nil        )) = Cons a (Left as)
-swop cmp f (Cons a (as, Cons a' as')) = case cmp a a' of
+swop _   _ Nil                          = Nil
+swop _   _ (Cons !a (as, Nil         )) = Cons a (Left as)
+swop cmp f (Cons !a (as, Cons !a' as')) = case cmp a a' of
   LT -> Cons a (Left as)
   GT -> Cons a' (Right (Cons a as'))
   EQ -> Cons (f a a') (Left as')
@@ -254,12 +264,16 @@ swop cmp f (Cons a (as, Cons a' as')) = case cmp a a' of
 
 groupByInsert' :: Ord k => [(k, v)] -> [(k, [v])]
 groupByInsert' =
-  RS.fold (RS.apo (specify swop . fmap (id &&& RS.project))) . fmap promote
+  unDList
+    . RS.fold (RS.apo (specify swop . fmap (id &&& RS.project)))
+    . fmap promote
 {-# INLINABLE groupByInsert' #-}
 
 groupByBubble' :: Ord k => [(k, v)] -> [(k, [v])]
 groupByBubble' =
-  RS.unfold (RS.para (fmap (id ||| RS.embed) . specify swop)) . fmap promote
+  unDList
+    . RS.unfold (RS.para (fmap (id ||| RS.embed) . specify swop))
+    . fmap promote
 {-# INLINABLE groupByBubble' #-}
 
 
@@ -332,7 +346,8 @@ toListAlg cmp f = RS.unfold (toListCoalg cmp f)
 
 
 groupByTree1 :: Ord k => [(k, v)] -> [(k, [v])]
-groupByTree1 = RS.hylo (specify toListAlg) (specify toTreeCoalg) . fmap promote
+groupByTree1 =
+  unDList . RS.hylo (specify toListAlg) (specify toTreeCoalg) . fmap promote
 {-# INLINABLE groupByTree1 #-}
 
 {-
