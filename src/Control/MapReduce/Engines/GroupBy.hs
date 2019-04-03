@@ -74,12 +74,10 @@ We always (?) need to begin with fmap promote so that the elements are combinabl
 It might be faster to do this in-line but it seems to complicate things...
 -}
 promote :: (k, v) -> (k, DList v)
-promote !(!k, !v) = (k, [v])
+promote (k, v) = (k, [v])
 {-# INLINABLE promote #-}
 
 unDList = fmap (second DL.toList)
-
-data Pair a b = Pair !a !b
 
 -- Fix a fully polymorphic version to our types
 specify
@@ -113,9 +111,9 @@ coalg1
   -> (a -> a -> a)
   -> ListF a [a]
   -> ListF a (ListF a [a])
-coalg1 _   _ Nil                 = Nil
-coalg1 _   _ (Cons !a []       ) = Cons a Nil
-coalg1 cmp f (Cons !a (!a' : l)) = case cmp a a' of
+coalg1 _   _ Nil               = Nil
+coalg1 _   _ (Cons a []      ) = Cons a Nil
+coalg1 cmp f (Cons a (a' : l)) = case cmp a a' of
   LT -> Cons a (Cons a' l)
   GT -> Cons a' (Cons a l)
   EQ -> Cons (f a a') (RS.project l)
@@ -138,9 +136,9 @@ alg1
   -> (a -> a -> a)
   -> ListF a (ListF a [a])
   -> ListF a [a]
-alg1 _   _ Nil                     = Nil
-alg1 _   _ (Cons !a Nil          ) = Cons a []
-alg1 cmp f (Cons !a (Cons !a' as)) = case cmp a a' of
+alg1 _   _ Nil                   = Nil
+alg1 _   _ (Cons a Nil         ) = Cons a []
+alg1 cmp f (Cons a (Cons a' as)) = case cmp a a' of
   LT -> Cons a (a' : as)
   GT -> Cons a' (a : as)
   EQ -> Cons (f a a') as
@@ -225,9 +223,9 @@ paraAlg
   -> (a -> a -> a)
   -> ListF a ([a], ListF a [a])
   -> ListF a [a]
-paraAlg _   _ Nil                         = Nil
-paraAlg _   _ (Cons !a (_, Nil         )) = Cons a []
-paraAlg cmp f (Cons !a (_, Cons !a' as')) = case cmp a a' of
+paraAlg _    _  Nil                       = Nil
+paraAlg _    _  (Cons a (_, Nil        )) = Cons a []
+paraAlg !cmp !f (Cons a (_, Cons a' as')) = case cmp a a' of
   LT -> Cons a (a' : as')
   GT -> Cons a' (a : as')
   EQ -> Cons (f a a') as'
@@ -254,9 +252,9 @@ swop
   -> (a -> a -> a)
   -> ListF a ([a], ListF a [a])
   -> ListF a (Either [a] (ListF a [a]))
-swop _   _ Nil                          = Nil
-swop _   _ (Cons !a (as, Nil         )) = Cons a (Left as)
-swop cmp f (Cons !a (as, Cons !a' as')) = case cmp a a' of
+swop _   _ Nil                        = Nil
+swop _   _ (Cons a (as, Nil        )) = Cons a (Left as)
+swop cmp f (Cons a (as, Cons a' as')) = case cmp a a' of
   LT -> Cons a (Left as)
   GT -> Cons a' (Right (Cons a as'))
   EQ -> Cons (f a a') (Left as')

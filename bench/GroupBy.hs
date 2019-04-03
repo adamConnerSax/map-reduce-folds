@@ -134,21 +134,16 @@ toTry =
     , ("TVL general merge"        , listViaTVL)
     , ("List.sort + fold to group", listHandRolled)
     , ("recursion-schemes, naive insert + group", rsNaiveInsert)
+
+  , ("recursion-schemes, naive bubble + group", rsNaiveBubble)
 -}
-  , ( "recursion-schemes, naive insert (grouping swap version)"
-    , rsNaiveInsert'
-    )
-{-      
-    , ("recursion-schemes, naive bubble + group", rsNaiveBubble)
--}
-  , ( "recursion-schemes, naive bubble (grouping swap version)"
-    , rsNaiveBubble'
-    )
-{-      
+  , ("recursion-schemes, naive insert (grouping swap version)", rsNaiveInsert')
+  , ("recursion-schemes, naive bubble (grouping swap version)", rsNaiveBubble')
+{-
     , ("recursion-schemes, insert (fold of grouping apo)"   , rsInsert)
--}
-  , ("recursion-schemes, bubble (unfold of grouping para)", rsBubble)
-{-    
+
+, ("recursion-schemes, bubble (unfold of grouping para)", rsBubble)
+    
     , ( "recursion-schemes, insert (fold of grouping apo, swop version)"
       , rsInsert'
       )

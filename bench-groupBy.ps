@@ -1,7 +1,7 @@
 %!PS-Adobe-2.0
-%%Title: bench-groupBy +RTS -hd
+%%Title: bench-groupBy +RTS -hd -hcgroupByBubble -L100
 %%Creator: hp2ps (version 0.25)
-%%CreationDate: Wed Apr  3 14:35 2019
+%%CreationDate: Wed Apr  3 15:00 2019
 %%BoundingBox: 0 0 576 384
 %%EndComments
 0.888889 0.888889 scale
@@ -16,39 +16,38 @@ closepath
 0.500000 setlinewidth
 stroke
 newpath
-5.000000 407.000000 moveto
-0 20.000000 rlineto
+5.000000 387.000000 moveto
+0 40.000000 rlineto
 638.000000 0 rlineto
-0 -20.000000 rlineto
+0 -40.000000 rlineto
 closepath
 0.500000 setlinewidth
 stroke
+5.000000 407.000000 moveto
+638.000000 0 rlineto
+stroke
 HE12 setfont
 11.000000 413.000000 moveto
-(bench-groupBy +RTS -hd) show
+(bench-groupBy +RTS -hd -hcgroupByBubble -L100) show
 HE12 setfont
-(3,574,147 bytes x seconds)
-dup stringwidth pop
-2 div
-319.000000
-exch sub
-413.000000 moveto
+11.000000 393.000000 moveto
+(124,089 bytes x seconds)
 show
 HE12 setfont
-(Wed Apr  3 14:35 2019)
+(Wed Apr  3 15:00 2019)
 dup stringwidth pop
 637.000000
 exch sub
-413.000000 moveto
+393.000000 moveto
 show
 45.000000 20.000000 moveto
-341.196824 0 rlineto
+339.496037 0 rlineto
 0.500000 setlinewidth
 stroke
 HE10 setfont
 (seconds)
 dup stringwidth pop
-386.196824
+384.496037
 exch sub
 5.000000 moveto
 show
@@ -62,95 +61,95 @@ dup stringwidth pop
 45.000000 exch sub
 5.000000 moveto
 show
-78.513820 20.000000 moveto
+77.764638 20.000000 moveto
 0 -4 rlineto
 stroke
 HE10 setfont
 (0.1)
 dup stringwidth pop
 2 div
-78.513820 exch sub
+77.764638 exch sub
 5.000000 moveto
 show
-112.027639 20.000000 moveto
+110.529276 20.000000 moveto
 0 -4 rlineto
 stroke
 HE10 setfont
 (0.1)
 dup stringwidth pop
 2 div
-112.027639 exch sub
+110.529276 exch sub
 5.000000 moveto
 show
-145.541459 20.000000 moveto
+143.293913 20.000000 moveto
 0 -4 rlineto
 stroke
 HE10 setfont
 (0.2)
 dup stringwidth pop
 2 div
-145.541459 exch sub
+143.293913 exch sub
 5.000000 moveto
 show
-179.055278 20.000000 moveto
+176.058551 20.000000 moveto
 0 -4 rlineto
 stroke
 HE10 setfont
 (0.2)
 dup stringwidth pop
 2 div
-179.055278 exch sub
+176.058551 exch sub
 5.000000 moveto
 show
-212.569098 20.000000 moveto
+208.823189 20.000000 moveto
 0 -4 rlineto
 stroke
 HE10 setfont
 (0.2)
 dup stringwidth pop
 2 div
-212.569098 exch sub
+208.823189 exch sub
 5.000000 moveto
 show
-246.082918 20.000000 moveto
+241.587827 20.000000 moveto
 0 -4 rlineto
 stroke
 HE10 setfont
 (0.3)
 dup stringwidth pop
 2 div
-246.082918 exch sub
+241.587827 exch sub
 5.000000 moveto
 show
-279.596737 20.000000 moveto
+274.352465 20.000000 moveto
 0 -4 rlineto
 stroke
 HE10 setfont
 (0.3)
 dup stringwidth pop
 2 div
-279.596737 exch sub
+274.352465 exch sub
 5.000000 moveto
 show
-313.110557 20.000000 moveto
+307.117102 20.000000 moveto
 0 -4 rlineto
 stroke
 HE10 setfont
 (0.4)
 dup stringwidth pop
 2 div
-313.110557 exch sub
+307.117102 exch sub
 5.000000 moveto
 show
 45.000000 20.000000 moveto
-0 382.000000 rlineto
+0 362.000000 rlineto
 0.500000 setlinewidth
 stroke
 gsave
 HE10 setfont
 (bytes)
 dup stringwidth pop
-402.000000
+382.000000
 exch sub
 40.000000 exch
 translate
@@ -162,7 +161,7 @@ grestore
 -4 0 rlineto
 stroke
 HE10 setfont
-(0M)
+(0k)
 dup stringwidth
 2 div
 20.000000 exch sub
@@ -171,59 +170,111 @@ exch
 exch
 moveto
 show
-45.000000 104.128961 moveto
+45.000000 57.229929 moveto
 -4 0 rlineto
 stroke
 HE10 setfont
-(2M)
+(200k)
 dup stringwidth
 2 div
-104.128961 exch sub
+57.229929 exch sub
 exch
 40.000000 exch sub
 exch
 moveto
 show
-45.000000 188.257923 moveto
+45.000000 94.459857 moveto
 -4 0 rlineto
 stroke
 HE10 setfont
-(4M)
+(400k)
 dup stringwidth
 2 div
-188.257923 exch sub
+94.459857 exch sub
 exch
 40.000000 exch sub
 exch
 moveto
 show
-45.000000 272.386884 moveto
+45.000000 131.689786 moveto
 -4 0 rlineto
 stroke
 HE10 setfont
-(6M)
+(600k)
 dup stringwidth
 2 div
-272.386884 exch sub
+131.689786 exch sub
 exch
 40.000000 exch sub
 exch
 moveto
 show
-45.000000 356.515845 moveto
+45.000000 168.919715 moveto
 -4 0 rlineto
 stroke
 HE10 setfont
-(8M)
+(800k)
 dup stringwidth
 2 div
-356.515845 exch sub
+168.919715 exch sub
 exch
 40.000000 exch sub
 exch
 moveto
 show
-391.196824 51.200000 moveto
+45.000000 206.149644 moveto
+-4 0 rlineto
+stroke
+HE10 setfont
+(1,000k)
+dup stringwidth
+2 div
+206.149644 exch sub
+exch
+40.000000 exch sub
+exch
+moveto
+show
+45.000000 243.379572 moveto
+-4 0 rlineto
+stroke
+HE10 setfont
+(1,200k)
+dup stringwidth
+2 div
+243.379572 exch sub
+exch
+40.000000 exch sub
+exch
+moveto
+show
+45.000000 280.609501 moveto
+-4 0 rlineto
+stroke
+HE10 setfont
+(1,400k)
+dup stringwidth
+2 div
+280.609501 exch sub
+exch
+40.000000 exch sub
+exch
+moveto
+show
+45.000000 317.839430 moveto
+-4 0 rlineto
+stroke
+HE10 setfont
+(1,600k)
+dup stringwidth
+2 div
+317.839430 exch sub
+exch
+40.000000 exch sub
+exch
+moveto
+show
+389.496037 85.400000 moveto
 0 14 rlineto
 14 0 rlineto
 0 -14 rlineto
@@ -234,9 +285,9 @@ fill
 grestore
 stroke
 HE10 setfont
-410.196824 53.200000 moveto
-(<Main.sat_sqf6>) show
-391.196824 89.400000 moveto
+408.496037 87.400000 moveto
+(BLACKHOLE) show
+389.496037 157.800000 moveto
 0 14 rlineto
 14 0 rlineto
 0 -14 rlineto
@@ -247,9 +298,9 @@ fill
 grestore
 stroke
 HE10 setfont
-410.196824 91.400000 moveto
-(<Main.sat_sqfB>) show
-391.196824 127.600000 moveto
+408.496037 159.800000 moveto
+(<Control.MapReduce.Engines.GroupBy.sat_snPH>) show
+389.496037 230.200000 moveto
 0 14 rlineto
 14 0 rlineto
 0 -14 rlineto
@@ -260,9 +311,9 @@ fill
 grestore
 stroke
 HE10 setfont
-410.196824 129.600000 moveto
-(BLACKHOLE) show
-391.196824 165.800000 moveto
+408.496037 232.200000 moveto
+(\(,\)) show
+389.496037 302.600000 moveto
 0 14 rlineto
 14 0 rlineto
 0 -14 rlineto
@@ -273,86 +324,21 @@ fill
 grestore
 stroke
 HE10 setfont
-410.196824 167.800000 moveto
-(Cons) show
-391.196824 204.000000 moveto
-0 14 rlineto
-14 0 rlineto
-0 -14 rlineto
-closepath
-gsave
-1.000000 0.000000 0.000000 setrgbcolor
-fill
-grestore
-stroke
-HE10 setfont
-410.196824 206.000000 moveto
-(<Main.sat_sqe6>) show
-391.196824 242.200000 moveto
-0 14 rlineto
-14 0 rlineto
-0 -14 rlineto
-closepath
-gsave
-1.000000 0.000000 1.000000 setrgbcolor
-fill
-grestore
-stroke
-HE10 setfont
-410.196824 244.200000 moveto
-(I#) show
-391.196824 280.400000 moveto
-0 14 rlineto
-14 0 rlineto
-0 -14 rlineto
-closepath
-gsave
-1.000000 1.000000 0.000000 setrgbcolor
-fill
-grestore
-stroke
-HE10 setfont
-410.196824 282.400000 moveto
-(<Control.MapReduce.Engines.GroupBy.sat_snO2>) show
-391.196824 318.600000 moveto
-0 14 rlineto
-14 0 rlineto
-0 -14 rlineto
-closepath
-gsave
-1.000000 1.000000 1.000000 setrgbcolor
-fill
-grestore
-stroke
-HE10 setfont
-410.196824 320.600000 moveto
-(\(,\)) show
-391.196824 356.800000 moveto
-0 14 rlineto
-14 0 rlineto
-0 -14 rlineto
-closepath
-gsave
-0.000000 0.000000 0.500000 setrgbcolor
-fill
-grestore
-stroke
-HE10 setfont
-410.196824 358.800000 moveto
+408.496037 304.600000 moveto
 (:) show
 45.000000 20.000000 moveto
 45.000000 20.000000 lineto
-126.236158 20.000000 lineto
-206.356306 20.000000 lineto
-287.928273 20.000000 lineto
-369.895032 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 20.000000 lineto
-287.928273 53.206038 lineto
-206.356306 20.000000 lineto
-126.236158 20.000000 lineto
+122.198729 20.000000 lineto
+213.129118 20.000000 lineto
+300.867575 20.000000 lineto
+374.943834 20.000000 lineto
+384.496037 20.000000 lineto
+384.496037 20.000000 lineto
+384.496037 20.000000 lineto
+374.943834 44.357309 lineto
+300.867575 20.000000 lineto
+213.129118 20.000000 lineto
+122.198729 20.000000 lineto
 45.000000 20.000000 lineto
 closepath
 gsave
@@ -362,17 +348,17 @@ grestore
 stroke
 45.000000 20.000000 moveto
 45.000000 20.000000 lineto
-126.236158 20.000000 lineto
-206.356306 20.000000 lineto
-287.928273 53.206038 lineto
-369.895032 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 57.855340 lineto
-287.928273 53.206038 lineto
-206.356306 20.000000 lineto
-126.236158 20.000000 lineto
+122.198729 20.000000 lineto
+213.129118 20.000000 lineto
+300.867575 20.000000 lineto
+374.943834 44.357309 lineto
+384.496037 20.000000 lineto
+384.496037 20.000000 lineto
+384.496037 20.000000 lineto
+374.943834 101.488868 lineto
+300.867575 20.000000 lineto
+213.129118 20.000000 lineto
+122.198729 20.000000 lineto
 45.000000 20.000000 lineto
 closepath
 gsave
@@ -382,17 +368,17 @@ grestore
 stroke
 45.000000 20.000000 moveto
 45.000000 20.000000 lineto
-126.236158 20.000000 lineto
-206.356306 20.000000 lineto
-287.928273 53.206038 lineto
-369.895032 57.855340 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 63.630625 lineto
-287.928273 54.352211 lineto
-206.356306 34.689590 lineto
-126.236158 77.367875 lineto
+122.198729 20.000000 lineto
+213.129118 20.000000 lineto
+300.867575 20.000000 lineto
+374.943834 101.488868 lineto
+384.496037 20.000000 lineto
+384.496037 20.000000 lineto
+384.496037 20.000000 lineto
+374.943834 158.620428 lineto
+300.867575 20.000000 lineto
+213.129118 20.000000 lineto
+122.198729 20.000000 lineto
 45.000000 20.000000 lineto
 closepath
 gsave
@@ -402,121 +388,21 @@ grestore
 stroke
 45.000000 20.000000 moveto
 45.000000 20.000000 lineto
-126.236158 77.367875 lineto
-206.356306 34.689590 lineto
-287.928273 54.352211 lineto
-369.895032 63.630625 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 63.630625 lineto
-287.928273 87.408835 lineto
-206.356306 45.072786 lineto
-126.236158 117.932505 lineto
+122.198729 20.000000 lineto
+213.129118 20.000000 lineto
+300.867575 20.000000 lineto
+374.943834 158.620428 lineto
+384.496037 20.000000 lineto
+384.496037 20.000000 lineto
+384.496037 20.000000 lineto
+374.943834 382.000000 lineto
+300.867575 20.000000 lineto
+213.129118 20.000000 lineto
+122.198729 20.000000 lineto
 45.000000 20.000000 lineto
 closepath
 gsave
 0.000000 1.000000 1.000000 setrgbcolor
-fill
-grestore
-stroke
-45.000000 20.000000 moveto
-45.000000 20.000000 lineto
-126.236158 117.932505 lineto
-206.356306 45.072786 lineto
-287.928273 87.408835 lineto
-369.895032 63.630625 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 63.630625 lineto
-287.928273 110.625736 lineto
-206.356306 98.530347 lineto
-126.236158 131.148155 lineto
-45.000000 20.000000 lineto
-closepath
-gsave
-1.000000 0.000000 0.000000 setrgbcolor
-fill
-grestore
-stroke
-45.000000 20.000000 moveto
-45.000000 20.000000 lineto
-126.236158 131.148155 lineto
-206.356306 98.530347 lineto
-287.928273 110.625736 lineto
-369.895032 63.630625 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 91.963914 lineto
-287.928273 138.959024 lineto
-206.356306 126.863635 lineto
-126.236158 159.481443 lineto
-45.000000 20.000000 lineto
-closepath
-gsave
-1.000000 0.000000 1.000000 setrgbcolor
-fill
-grestore
-stroke
-45.000000 20.000000 moveto
-45.000000 20.000000 lineto
-126.236158 159.481443 lineto
-206.356306 126.863635 lineto
-287.928273 138.959024 lineto
-369.895032 91.963914 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 142.441290 lineto
-287.928273 189.436401 lineto
-206.356306 177.341012 lineto
-126.236158 209.958820 lineto
-45.000000 20.000000 lineto
-closepath
-gsave
-1.000000 1.000000 0.000000 setrgbcolor
-fill
-grestore
-stroke
-45.000000 20.000000 moveto
-45.000000 20.000000 lineto
-126.236158 209.958820 lineto
-206.356306 177.341012 lineto
-287.928273 189.436401 lineto
-369.895032 142.441290 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 215.008577 lineto
-287.928273 272.981507 lineto
-206.356306 238.205624 lineto
-126.236158 301.004865 lineto
-45.000000 20.000000 lineto
-closepath
-gsave
-1.000000 1.000000 1.000000 setrgbcolor
-fill
-grestore
-stroke
-45.000000 20.000000 moveto
-45.000000 20.000000 lineto
-126.236158 301.004865 lineto
-206.356306 238.205624 lineto
-287.928273 272.981507 lineto
-369.895032 215.008577 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-386.196824 20.000000 lineto
-369.895032 329.414542 lineto
-287.928273 373.976643 lineto
-206.356306 339.200759 lineto
-126.236158 402.000000 lineto
-45.000000 20.000000 lineto
-closepath
-gsave
-0.000000 0.000000 0.500000 setrgbcolor
 fill
 grestore
 stroke
