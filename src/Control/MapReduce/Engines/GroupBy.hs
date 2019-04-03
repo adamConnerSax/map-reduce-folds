@@ -85,18 +85,6 @@ specify
 specify f = f (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))
 {-# INLINABLE specify #-}
 
--- aka "project" from Data.Functor.Foldable.Recursive
-unfixList :: [a] -> ListF a [a]
-unfixList []       = Nil
-unfixList (x : xs) = Cons x xs
-{-# INLINABLE unfixList #-}
-
--- aka "embed" from Data.Functor.Foldable.Corecursive
-fixListF :: ListF a [a] -> [a]
-fixListF Nil         = []
-fixListF (Cons x xs) = x : xs
-{-# INLINABLE fixListF #-}
-
 {-
 Following <https://www.cs.ox.ac.uk/ralf.hinze/publications/Sorting.pdf>,
 we'll start with a Naive sort of a list
@@ -227,10 +215,10 @@ paraAlg
   -> (a -> a -> a)
   -> ListF a ([a], ListF a [a])
   -> ListF a [a]
-paraAlg _   _ Nil                        = Nil
-paraAlg _   _ (Cons a (as, Nil        )) = Cons a []
-paraAlg cmp f (Cons a (as, Cons a' as')) = case cmp a a' of
-  LT -> Cons a as
+paraAlg _   _ Nil                       = Nil
+paraAlg _   _ (Cons a (_, Nil        )) = Cons a []
+paraAlg cmp f (Cons a (_, Cons a' as')) = case cmp a a' of
+  LT -> Cons a (a' : as')
   GT -> Cons a' (a : as')
   EQ -> Cons (f a a') as'
 {-# INLINABLE paraAlg #-}
@@ -280,14 +268,9 @@ groupByBubble' =
 {-
 Now we try to do better by unfolding to a Tree and folding to a list
 which makes for fewer comparisons.
-We begin by unfolding to a Tree.
-unfold coalg :: ([a] -> Tree a) ~ ([a] -> Fix (TreeF a))
-coalg :: ([a] -> TreeF a [a])
-and we note that this coalgebra is a fold
-fold alg :: ([a] -> TreeF a [a]) ~ (Fix (ListF a) -> TreeF a [a])
-alg :: (ListF a (TreeF a [a]) -> TreeF a [a])
+We'd like to do all the combining as we make the tree but we don't here because the tree forks any time the list elements aren't equal.
+So we combine any equal ones that are adjacent on the way down.  Then combine the rest as we recombine that tree into a list.
 -}
-
 data Tree a where
   Tip :: Tree a
   Leaf :: a -> Tree a
@@ -295,7 +278,14 @@ data Tree a where
 
 RS.makeBaseFunctor ''Tree
 
-
+{-
+We begin by unfolding to a Tree.
+unfold coalg :: ([a] -> Tree a) ~ ([a] -> Fix (TreeF a))
+coalg :: ([a] -> TreeF a [a])
+and we note that this coalgebra is a fold
+fold alg :: ([a] -> TreeF a [a]) ~ (Fix (ListF a) -> TreeF a [a])
+alg :: (ListF a (TreeF a [a]) -> TreeF a [a])
+-}
 toTreeAlg
   :: (a -> a -> Ordering)
   -> (a -> a -> a)
@@ -312,15 +302,6 @@ toTreeAlg cmp f (Cons a (ForkF ls rs)) = ForkF (a : rs) ls
 
 toTreeCoalg :: (a -> a -> Ordering) -> (a -> a -> a) -> [a] -> TreeF a [a]
 toTreeCoalg cmp f = RS.fold (toTreeAlg cmp f)
-{-
-toTreeCoalg _   _ []            = TipF
-toTreeCoalg _   _ (a      : []) = LeafF a
-toTreeCoalg cmp f (a : a' : as) = case cmp a a' of
-  LT -> ForkF ([a]) (a' : as)
-  GT -> ForkF (a : as) ([a'])
-  EQ -> toTreeCoalg cmp f ((f a a') : as)
-{-# INLINABLE toTreeCoalg #-}
--}
 
 {-
 fold alg :: (Tree a -> [a]) ~ (Fix (TreeF a) -> [a])
@@ -329,7 +310,6 @@ and we note that this algebra is an unfold
 unfold coalg :: TreeF a [a] -> Fix (ListF a)
 coalg :: TreeF a [a] -> ListF a (TreeF a [a])
 -}
-
 toListCoalg
   :: (a -> a -> Ordering)
   -> (a -> a -> a)
@@ -350,12 +330,6 @@ toListAlg :: (a -> a -> Ordering) -> (a -> a -> a) -> TreeF a [a] -> [a]
 toListAlg cmp f = RS.unfold (toListCoalg cmp f)
 {-# INLINABLE toListAlg #-}
 
-{-
-toListAlg TipF           = []
-toListAlg (LeafF a     ) = [a]
-toListAlg (ForkF as as') = as ++ as'
-
--}
 
 groupByTree1 :: Ord k => [(k, v)] -> [(k, [v])]
 groupByTree1 = RS.hylo (specify toListAlg) (specify toTreeCoalg) . fmap promote
