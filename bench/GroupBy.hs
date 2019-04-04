@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 import           Criterion.Main
 import           Criterion
 import qualified Weigh                         as W
@@ -58,55 +59,6 @@ listViaLazyHashMap :: [(Char, Int)] -> [(Char, [Int])]
 listViaLazyHashMap = HML.toList . HML.fromListWith (<>) . fmap promote
 {-# INLINE listViaLazyHashMap #-}
 
-listViaTVL :: [(Char, Int)] -> [(Char, [Int])]
-listViaTVL = MRG.groupByTVL
-{-# INLINE listViaTVL #-}
-
-listHandRolled :: [(Char, Int)] -> [(Char, [Int])]
-listHandRolled = MRG.groupByHR
-{-# INLINE listHandRolled #-}
-
-rsNaiveInsert :: [(Char, Int)] -> [(Char, [Int])]
-rsNaiveInsert = MRG.groupByNaiveInsert
-{-# INLINE rsNaiveInsert #-}
-
-rsNaiveBubble :: [(Char, Int)] -> [(Char, [Int])]
-rsNaiveBubble = MRG.groupByNaiveBubble
-{-# INLINE rsNaiveBubble #-}
-
-rsNaiveInsert' :: [(Char, Int)] -> [(Char, [Int])]
-rsNaiveInsert' = MRG.groupByNaiveInsert'
-{-# INLINE rsNaiveInsert' #-}
-
-rsNaiveBubble' :: [(Char, Int)] -> [(Char, [Int])]
-rsNaiveBubble' = MRG.groupByNaiveBubble'
-{-# INLINE rsNaiveBubble' #-}
-
-rsInsert :: [(Char, Int)] -> [(Char, [Int])]
-rsInsert = MRG.groupByInsert
-{-# INLINE rsInsert #-}
-
-rsBubble :: [(Char, Int)] -> [(Char, [Int])]
-rsBubble = MRG.groupByBubble
-{-# INLINE rsBubble #-}
-
-rsInsert' :: [(Char, Int)] -> [(Char, [Int])]
-rsInsert' = MRG.groupByInsert'
-{-# INLINE rsInsert' #-}
-
-rsBubble' :: [(Char, Int)] -> [(Char, [Int])]
-rsBubble' = MRG.groupByBubble'
-{-# INLINE rsBubble' #-}
-
-rsTree1 :: [(Char, Int)] -> [(Char, [Int])]
-rsTree1 = MRG.groupByTree1
-{-# INLINE rsTree1 #-}
-
-rsNaiveInsert2 :: [(Char, Int)] -> [(Char, [Int])]
-rsNaiveInsert2 = MRG.groupByNaiveInsert2
-{-# INLINE rsNaiveInsert2 #-}
-
-
 groupSum :: [(Char, [Int])] -> ML.Map Char Int
 groupSum = ML.fromList . fmap (\(k, ln) -> (k, L.sum ln))
 
@@ -131,30 +83,40 @@ toTry =
     , ("lazy map"                 , listViaLazyMap)
     , ("strict hash map"          , listViaStrictHashMap)
     , ("lazy hash map"            , listViaLazyHashMap)
-    , ("TVL general merge"        , listViaTVL)
-    , ("List.sort + fold to group", listHandRolled)
-    , ("recursion-schemes, naive insert + group", rsNaiveInsert)
+    , ("TVL general merge"        , MRG.groupByTVL)
+    , ("List.sort + fold to group", MRG.groupByHR)
+    , ("recursion-schemes, naive insert + group", MRG.groupByNaiveInsert)
 
-  , ("recursion-schemes, naive bubble + group", rsNaiveBubble)
+  , ("recursion-schemes, naive bubble + group", MRG.groupByNaiveBubble)
 -}
-  , ("recursion-schemes, naive insert (grouping swap version)", rsNaiveInsert')
-  , ("recursion-schemes, naive bubble (grouping swap version)", rsNaiveBubble')
+  , ( "recursion-schemes, naive insert (grouping swap version)"
+    , MRG.groupByNaiveInsert'
+    )
+--  , ( "recursion-schemes, naive insert (grouping swap version, DList)"
+--    , unDList . MRG.groupByNaiveInsert'
+--    )
+  , ( "recursion-schemes, naive bubble (grouping swap version)"
+    , MRG.groupByNaiveBubble'
+    )
+--  , ( "recursion-schemes, naive bubble (grouping swap version, DList)"
+--    , unDList . MRG.groupByNaiveBubble'
+--    )
 {-
-    , ("recursion-schemes, insert (fold of grouping apo)"   , rsInsert)
-
-, ("recursion-schemes, bubble (unfold of grouping para)", rsBubble)
-    
+    , ("recursion-schemes, insert (fold of grouping apo)"   , MRG.groupByInsert)
+-}
+  , ("recursion-schemes, bubble (unfold of grouping para)", MRG.groupByBubble)
+{-    
     , ( "recursion-schemes, insert (fold of grouping apo, swop version)"
-      , rsInsert'
+      , MTG.groupByInsert'
       )
     , ( "recursion-schemes, bubble (unfold of grouping para, swop version)"
-      , rsBubble'
+      , MRG.groupByBubble'
       )
     , ( "recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
-      , rsTree1
+      , MRG.groupByTree1
       )
     , ( "recursion-schemes, naive insert + group + internal x -> [x]"
-      , rsNaiveInsert2
+      , MRG.groupByNaiveInsert2
       )
 -}
   ]
@@ -176,4 +138,4 @@ main = do
   dat <- createPairData 50000
   checkAll dat toTry
   putStrLn ""
---  benchAll dat toTry
+  benchAll dat toTry
