@@ -12,3 +12,7 @@ TAGS
 .ghc*
 bench/*.html
 *.prof
+*.hp
+*.ps
+*.aux
+*.png

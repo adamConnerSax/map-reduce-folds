@@ -80,45 +80,54 @@ toTry =
     , listViaStrictMap
     )
 {-    
-    , ("lazy map"                 , listViaLazyMap)
-    , ("strict hash map"          , listViaStrictHashMap)
-    , ("lazy hash map"            , listViaLazyHashMap)
-    , ("TVL general merge"        , MRG.groupByTVL)
-    , ("List.sort + fold to group", MRG.groupByHR)
-    , ("recursion-schemes, naive insert + group", MRG.groupByNaiveInsert)
+    , ("listViaLazyMap: lazy map"                 , listViaLazyMap)
+    , ("listViaStrictMap: strict hash map"          , listViaStrictHashMap)
+    , ("listViaLazyHashMap: lazy hash map"            , listViaLazyHashMap)
+    , ("listViaTVL: TVL general merge"        , MRG.groupByTVL)
+    , ("MRG.groupByHR: List.sort + fold to group", MRG.groupByHR)
+-}
+  , ( "MRG.groupByNaiveInsert: recursion-schemes, naive insert + group"
+    , MRG.groupByNaiveInsert
+    )
+  , ( "MRG.groupByNaiveBubble: recursion-schemes, naive bubble + group"
+    , MRG.groupByNaiveBubble
+    )
+{-
 
-  , ("recursion-schemes, naive bubble + group", MRG.groupByNaiveBubble)
-
-  , ( "recursion-schemes, naive insert (grouping swap version)"
+  , ( "MRG.groupByNaiveInsert': recursion-schemes, naive insert (grouping swap version)"
     , MRG.groupByNaiveInsert'
     )
-  , ( "recursion-schemes, naive insert (grouping swap version, DList)"
+  , ( "unDList . MRG.groupByNaiveInsert: recursion-schemes, naive insert (grouping swap version, DList)"
     , unDList . MRG.groupByNaiveInsert'
     )
--}
-  , ( "recursion-schemes, naive bubble (grouping swap version)"
+
+  , ( "MRG.groupByNaiveBubble: recursion-schemes, naive bubble (grouping swap version)"
     , MRG.groupByNaiveBubble'
     )
-{-    
-  , ( "recursion-schemes, naive bubble (grouping swap version, DList)"
+    
+  , ( "unDList . MRG.groupByNaiveBubble': recursion-schemes, naive bubble (grouping swap version, DList)"
     , unDList . MRG.groupByNaiveBubble'
     )
-  , ("recursion-schemes, insert (fold of grouping apo)"   , MRG.groupByInsert)
 -}
-  , ("recursion-schemes, bubble (unfold of grouping para)", MRG.groupByBubble)
+  , ( "MRG.groupByInsert: recursion-schemes, insert (fold of grouping apo)"
+    , MRG.groupByInsert
+    )
+  , ( "MRG.groupByBubble: recursion-schemes, bubble (unfold of grouping para)"
+    , MRG.groupByBubble
+    )
 {-    
-    , ( "recursion-schemes, insert (fold of grouping apo, swop version)"
+    , ( "MRG.groupByInsert': recursion-schemes, insert (fold of grouping apo, swop version)"
       , MTG.groupByInsert'
       )
 
-  , ( "recursion-schemes, bubble (unfold of grouping para, swop version)"
+  , ( "MRG.groupByBubble': recursion-schemes, bubble (unfold of grouping para, swop version)"
     , MRG.groupByBubble'
     )
    
-    , ( "recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
+    , ( "MRG.groupByTree1: recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
       , MRG.groupByTree1
       )
-    , ( "recursion-schemes, naive insert + group + internal x -> [x]"
+    , ( "MRG.groupByNaiveInsert2: recursion-schemes, naive insert + group + internal x -> [x]"
       , MRG.groupByNaiveInsert2
       )
 -}
@@ -141,4 +150,4 @@ main = do
   dat <- createPairData 50000
   checkAll dat toTry
   putStrLn ""
---  benchAll dat toTry
+  benchAll dat toTry
