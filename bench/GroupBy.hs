@@ -88,30 +88,33 @@ toTry =
     , ("recursion-schemes, naive insert + group", MRG.groupByNaiveInsert)
 
   , ("recursion-schemes, naive bubble + group", MRG.groupByNaiveBubble)
--}
+
   , ( "recursion-schemes, naive insert (grouping swap version)"
     , MRG.groupByNaiveInsert'
     )
---  , ( "recursion-schemes, naive insert (grouping swap version, DList)"
---    , unDList . MRG.groupByNaiveInsert'
---    )
+  , ( "recursion-schemes, naive insert (grouping swap version, DList)"
+    , unDList . MRG.groupByNaiveInsert'
+    )
+-}
   , ( "recursion-schemes, naive bubble (grouping swap version)"
     , MRG.groupByNaiveBubble'
     )
---  , ( "recursion-schemes, naive bubble (grouping swap version, DList)"
---    , unDList . MRG.groupByNaiveBubble'
---    )
-{-
-    , ("recursion-schemes, insert (fold of grouping apo)"   , MRG.groupByInsert)
+{-    
+  , ( "recursion-schemes, naive bubble (grouping swap version, DList)"
+    , unDList . MRG.groupByNaiveBubble'
+    )
+  , ("recursion-schemes, insert (fold of grouping apo)"   , MRG.groupByInsert)
 -}
   , ("recursion-schemes, bubble (unfold of grouping para)", MRG.groupByBubble)
 {-    
     , ( "recursion-schemes, insert (fold of grouping apo, swop version)"
       , MTG.groupByInsert'
       )
-    , ( "recursion-schemes, bubble (unfold of grouping para, swop version)"
-      , MRG.groupByBubble'
-      )
+
+  , ( "recursion-schemes, bubble (unfold of grouping para, swop version)"
+    , MRG.groupByBubble'
+    )
+   
     , ( "recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
       , MRG.groupByTree1
       )
@@ -138,4 +141,4 @@ main = do
   dat <- createPairData 50000
   checkAll dat toTry
   putStrLn ""
-  benchAll dat toTry
+--  benchAll dat toTry

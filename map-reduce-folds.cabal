@@ -63,7 +63,7 @@ benchmark bench-groupBy
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench
   other-modules:       
-  ghc-options:         -O2 -fspecialise-aggressively -funbox-strict-fields -ddump-to-file -ddump-simpl -dsuppress-coercions -dsuppress-type-applications -dsuppress-uniques -dsuppress-module-prefixes
+  ghc-options:         -O2 -fspecialise-aggressively -funbox-strict-fields -ddump-to-file -ddump-simpl -fforce-recomp -dsuppress-type-applications -dsuppress-coercions -dsuppress-uniques -dsuppress-module-prefixes
 --                       -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches
   main-is:             GroupBy.hs
   build-depends:       map-reduce-folds, foldl, base, criterion, unordered-containers, deepseq, text, random, weigh
