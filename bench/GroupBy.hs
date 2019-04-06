@@ -85,26 +85,29 @@ toTry =
     , ("listViaLazyHashMap: lazy hash map"            , listViaLazyHashMap)
     , ("listViaTVL: TVL general merge"        , MRG.groupByTVL)
     , ("MRG.groupByHR: List.sort + fold to group", MRG.groupByHR)
--}
   , ( "MRG.groupByNaiveInsert: recursion-schemes, naive insert + group"
     , MRG.groupByNaiveInsert
     )
   , ( "MRG.groupByNaiveBubble: recursion-schemes, naive bubble + group"
     , MRG.groupByNaiveBubble
     )
-{-
-
   , ( "MRG.groupByNaiveInsert': recursion-schemes, naive insert (grouping swap version)"
     , MRG.groupByNaiveInsert'
     )
-  , ( "unDList . MRG.groupByNaiveInsert: recursion-schemes, naive insert (grouping swap version, DList)"
-    , unDList . MRG.groupByNaiveInsert'
+-}
+  , ( "MRG.groupByNaiveInsert: recursion-schemes, swap naive insert"
+    , MRG.groupByNaiveInsert'
     )
-
-  , ( "MRG.groupByNaiveBubble: recursion-schemes, naive bubble (grouping swap version)"
+  , ( "MRG.groupByNaiveBubble: recursion-schemes, swap naive bubble"
     , MRG.groupByNaiveBubble'
     )
-    
+  , ( "MRG.groupByNaiveInsertY: yaya, swap naive insert"
+    , MRG.groupByNaiveInsertY
+    )
+  , ( "MRG.groupByNaiveBubbleY: yaya, swap naive bubble"
+    , MRG.groupByNaiveBubbleY
+    )
+{-
   , ( "unDList . MRG.groupByNaiveBubble': recursion-schemes, naive bubble (grouping swap version, DList)"
     , unDList . MRG.groupByNaiveBubble'
     )
@@ -115,7 +118,7 @@ toTry =
   , ( "MRG.groupByBubble: recursion-schemes, bubble (unfold of grouping para)"
     , MRG.groupByBubble
     )
-{-    
+{-  
     , ( "MRG.groupByInsert': recursion-schemes, insert (fold of grouping apo, swop version)"
       , MTG.groupByInsert'
       )
@@ -123,10 +126,14 @@ toTry =
   , ( "MRG.groupByBubble': recursion-schemes, bubble (unfold of grouping para, swop version)"
     , MRG.groupByBubble'
     )
-   
-    , ( "MRG.groupByTree1: recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
-      , MRG.groupByTree1
-      )
+-}
+  , ( "MRG.groupByTree1: recursion-schemes, hylo (grouping unfold to Tree, fold to list)"
+    , MRG.groupByTree1
+    )
+  , ( "MRG.groupByTree2: recursion-schemes, hylo (unfold to Tree, merge back up)"
+    , MRG.groupByTree2
+    )
+{-      
     , ( "MRG.groupByNaiveInsert2: recursion-schemes, naive insert + group + internal x -> [x]"
       , MRG.groupByNaiveInsert2
       )

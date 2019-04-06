@@ -18,6 +18,7 @@
 {-# LANGUAGE DeriveTraversable     #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE OverloadedLists       #-}
+{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Engines.GroupBy
@@ -43,11 +44,14 @@ module Control.MapReduce.Engines.GroupBy
   , groupByNaiveBubble
   , groupByNaiveInsert'
   , groupByNaiveBubble'
+  , groupByNaiveInsertY
+  , groupByNaiveBubbleY
   , groupByInsert
   , groupByBubble
   , groupByInsert'
   , groupByBubble'
   , groupByTree1
+  , groupByTree2
   , groupByNaiveInsert2
   )
 where
@@ -73,7 +77,8 @@ import qualified Control.Foldl                 as FL
 import           GHC.Exts                       ( IsList
                                                 , Item
                                                 )
-
+import qualified Yaya.Fold                     as Y
+import           Yaya.Pattern                   ( XNor(..) )
 {-
 We always (?) need to begin with fmap promote so that the elements are combinable.
 It might be faster to do this in-line but it seems to complicate things...
@@ -94,6 +99,34 @@ specify f = g where g = f (compare `on` fst) (\(k, x) (_, y) -> (k, x <> y))
 unDList :: [(k, DList v)] -> [(k, [v])]
 unDList = fmap (second DL.toList)
 {-# INLINABLE unDList #-}
+
+
+{-
+We set up some basic machinery to use all of this with Yaya as well as recursion schemes.
+-}
+{-
+instance Y.Projectable [a] (ListF a) where
+  project [] = Nil
+  project (x:xs) = Cons x xs
+
+instance Y.Steppable [a] (ListF a) where
+  embed Nil = []
+  embed (Cons x xs) = x : xs
+-}
+
+instance Y.Recursive [a] (XNor a) where
+  cata f = c where c = f . fmap c . Y.project
+{-  cata alg [] = alg Neither
+  cata alg (x : xs) = alg $ Both x (Y.cata alg xs) -}
+  {-# INLINABLE cata #-}
+
+instance Y.Corecursive [a] (XNor a) where
+  ana coalg = a where a = Y.embed . fmap a . coalg
+{-  ana coalg = (\case
+                  Neither -> []
+                  Both x xs -> x : Y.ana coalg xs
+              ) . coalg -}
+  {-# INLINABLE ana #-}
 
 {-
 Following <https://www.cs.ox.ac.uk/ralf.hinze/publications/Sorting.pdf>,
@@ -191,6 +224,30 @@ groupByNaiveBubble' =
 {-# INLINABLE groupByNaiveBubble' #-}
 
 
+swapYaya
+  :: (a -> a -> Ordering)
+  -> (a -> a -> a)
+  -> XNor a (XNor a [a])
+  -> XNor a (XNor a [a])
+swapYaya _   _ Neither               = Neither
+swapYaya _   _ (Both a Neither     ) = Both a Neither
+swapYaya cmp f (Both a (Both a' as)) = case cmp a a' of
+  LT -> Both a (Both a' as) -- already in order
+  GT -> Both a' (Both a as) -- need to swap
+  EQ -> Both (f a a') (Y.project as)
+
+groupByNaiveInsertY
+  :: (IsList l, Item l ~ v, Monoid l, Ord k) => [(k, v)] -> [(k, l)]
+groupByNaiveInsertY =
+  Y.cata (Y.ana (specify swapYaya . fmap Y.project)) . fmap promote
+{-# INLINABLE groupByNaiveInsertY #-}
+
+groupByNaiveBubbleY
+  :: (IsList l, Item l ~ v, Monoid l, Ord k) => [(k, v)] -> [(k, l)]
+groupByNaiveBubbleY =
+  Y.ana (Y.cata (fmap Y.embed . specify swapYaya)) . fmap promote
+{-# INLINABLE groupByNaiveBubbleY #-}
+
 {-
 As pointed out in Hinze, this is inefficient because the rhs list is already sorted.
 So in the non-swap cases, we need not do any more work.
@@ -241,6 +298,7 @@ paraAlg = go
 
 groupByBubble :: (IsList l, Item l ~ v, Monoid l, Ord k) => [(k, v)] -> [(k, l)]
 groupByBubble = RS.unfold (RS.para (specify paraAlg)) . fmap promote
+--groupByBubble = RS.unfold (RS.para (specify alg1 . fmap snd)) . fmap promote  -- this one is also slow.  So it's para, not paraAlg
 {-# INLINABLE groupByBubble #-}
 
 {-
@@ -268,12 +326,14 @@ swop cmp f (Cons a (as, Cons a' as')) = case cmp a a' of
   EQ -> Cons (f a a') (Left as')
 --{-# INLINABLE swop #-}
 
-groupByInsert' :: Ord k => [(k, v)] -> [(k, [v])]
+groupByInsert'
+  :: (IsList l, Item l ~ v, Monoid l, Ord k) => [(k, v)] -> [(k, l)]
 groupByInsert' =
   RS.fold (RS.apo (specify swop . fmap (id &&& RS.project))) . fmap promote
 {-# INLINABLE groupByInsert' #-}
 
-groupByBubble' :: Ord k => [(k, v)] -> [(k, [v])]
+groupByBubble'
+  :: (IsList l, Item l ~ v, Monoid l, Ord k) => [(k, v)] -> [(k, l)]
 groupByBubble' =
   RS.unfold (RS.para (fmap (id ||| RS.embed) . specify swop)) . fmap promote
 {-# INLINABLE groupByBubble' #-}
@@ -290,9 +350,28 @@ So we combine any equal ones that are adjacent on the way down.  Then combine th
 data Tree a where
   Tip :: Tree a
   Leaf :: a -> Tree a
-  Fork :: Tree a -> Tree a -> Tree a deriving (Show)
+  Fork :: Tree a -> Tree a -> Tree a deriving (Show, Functor, Foldable, Traversable)
 
-RS.makeBaseFunctor ''Tree
+data TreeF a b where
+  TipF :: TreeF a b
+  LeafF :: a -> TreeF a b
+  ForkF :: b -> b -> TreeF a b deriving (Show, Functor)
+
+type instance Base (Tree a) = TreeF a
+
+instance RS.Recursive (Tree a) where
+  project Tip = TipF
+  project (Leaf a) = LeafF a
+  project (Fork t1 t2) = ForkF t1 t2
+  {-# INLINABLE project #-}
+
+instance RS.Corecursive (Tree a) where
+  embed TipF = Tip
+  embed (LeafF a) = Leaf a
+  embed (ForkF t1 t2) = Fork t1 t2
+  {-# INLINABLE embed #-}
+
+--RS.makeBaseFunctor ''Tree
 
 {-
 We begin by unfolding to a Tree.
@@ -307,17 +386,20 @@ toTreeAlg
   -> (a -> a -> a)
   -> ListF a (TreeF a [a])
   -> TreeF a [a]
-toTreeAlg _   _ Nil                 = TipF
-toTreeAlg _   _ (Cons a TipF      ) = LeafF a
-toTreeAlg cmp f (Cons a (LeafF a')) = case cmp a a' of
-  LT -> ForkF [a] [a']
-  GT -> ForkF [a'] [a]
-  EQ -> LeafF (f a a')
-toTreeAlg cmp f (Cons a (ForkF ls rs)) = ForkF (a : rs) ls
-
+toTreeAlg cmp f = go
+ where
+  go Nil                 = TipF
+  go (Cons a TipF      ) = LeafF a
+  go (Cons a (LeafF a')) = case cmp a a' of
+    LT -> ForkF [a] [a']
+    GT -> ForkF [a'] [a]
+    EQ -> LeafF (f a a')
+  go (Cons a (ForkF ls rs)) = ForkF (a : rs) ls
+--{-# INLINABLE toTreeAlg #-}
 
 toTreeCoalg :: (a -> a -> Ordering) -> (a -> a -> a) -> [a] -> TreeF a [a]
-toTreeCoalg cmp f = RS.fold (toTreeAlg cmp f)
+toTreeCoalg cmp f = go where go x = RS.fold (toTreeAlg cmp f) x
+--{-# INLINABLE toTreeCoalg #-}
 
 {-
 fold alg :: (Tree a -> [a]) ~ (Fix (TreeF a) -> [a])
@@ -331,26 +413,63 @@ toListCoalg
   -> (a -> a -> a)
   -> TreeF a [a]
   -> ListF a (TreeF a [a])
-toListCoalg _   _ TipF                        = Nil
-toListCoalg _   _ (LeafF a                  ) = Cons a TipF
-toListCoalg _   _ (ForkF []       []        ) = Nil
-toListCoalg _   _ (ForkF (a : as) []        ) = Cons a (ForkF [] as)
-toListCoalg _   _ (ForkF []       (a  : as )) = Cons a (ForkF [] as)
-toListCoalg cmp f (ForkF (a : as) (a' : as')) = case cmp a a' of
-  LT -> Cons a (ForkF as (a' : as'))
-  GT -> Cons a' (ForkF (a : as) as')
-  EQ -> Cons (f a a') (ForkF as as')
---{-# INLINABLE toListCoalg #-}
+toListCoalg cmp f = go
+ where
+  go TipF                        = Nil
+  go (LeafF a                  ) = Cons a TipF
+  go (ForkF []       []        ) = Nil
+  go (ForkF (a : as) []        ) = Cons a (ForkF [] as)
+  go (ForkF []       (a  : as )) = Cons a (ForkF [] as)
+  go (ForkF (a : as) (a' : as')) = case cmp a a' of
+    LT -> Cons a (ForkF as (a' : as'))
+    GT -> Cons a' (ForkF (a : as) as')
+    EQ -> Cons (f a a') (ForkF as as')
+{-# INLINE toListCoalg #-}
 
 toListAlg :: (a -> a -> Ordering) -> (a -> a -> a) -> TreeF a [a] -> [a]
-toListAlg cmp f = RS.unfold (toListCoalg cmp f)
+toListAlg cmp f = go where go x = RS.unfold (toListCoalg cmp f) x
 --{-# INLINABLE toListAlg #-}
 
 
-groupByTree1 :: Ord k => [(k, v)] -> [(k, [v])]
-groupByTree1 = RS.hylo (specify toListAlg) (specify toTreeCoalg) . fmap promote
+groupByTree1 :: (IsList l, Item l ~ v, Monoid l, Ord k) => [(k, v)] -> [(k, l)]
+--groupByTree1 = RS.hylo (specify toListAlg) (specify toTreeCoalg) . fmap promote
+groupByTree1 =
+  RS.hylo (RS.ana (specify toListCoalg)) (RS.cata (specify toTreeAlg))
+    . fmap promote
 {-# INLINABLE groupByTree1 #-}
+--{-# SPECIALIZE groupByTree1 :: [(Char, Int)] -> [(Char, [Int])] #-}
 
+
+{-
+Let's try again with a more direct hylo
+-}
+
+listToTreeCoalg :: [a] -> TreeF a [a]
+listToTreeCoalg []       = TipF
+listToTreeCoalg (x : []) = LeafF x
+listToTreeCoalg xs =
+  let (as, bs) = L.splitAt (L.length xs `div` 2) xs in ForkF as bs
+
+treeToListAlg :: (a -> a -> Ordering) -> (a -> a -> a) -> TreeF a [a] -> [a]
+treeToListAlg cmp f = go
+ where
+  go TipF          = []
+  go (LeafF a    ) = [a]
+  go (ForkF as bs) = mergeBy cmp f as bs
+
+groupByTree2 :: (IsList l, Item l ~ v, Monoid l, Ord k) => [(k, v)] -> [(k, l)]
+groupByTree2 = RS.hylo (specify treeToListAlg) listToTreeCoalg . fmap promote
+
+
+mergeBy :: (a -> a -> Ordering) -> (a -> a -> a) -> [a] -> [a] -> [a]
+mergeBy cmp f = loop
+ where
+  loop []       ys       = ys
+  loop xs       []       = xs
+  loop (x : xs) (y : ys) = case cmp x y of
+    GT -> y : loop (x : xs) ys
+    EQ -> f x y : loop xs ys
+    _  -> x : loop xs (y : ys)
 {-
 treeCoalg
   :: (a -> a -> Ordering)
