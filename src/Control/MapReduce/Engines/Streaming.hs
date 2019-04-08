@@ -24,14 +24,15 @@ Stability   : experimental
 
 map-reduce engine (fold builder) using Streams as its intermediate type.
 -}
-module Control.MapReduce.Engines.Streams
+module Control.MapReduce.Engines.Streaming
   (
     -- * Engines
-    streamEngine
-  , streamEngineM
+    streamingEngine
+  , streamingEngineM
+  , resultToList
   -- * groupBy functions
   , groupByHashedKey
-  , groupByOrdKey
+  , groupByOrderedKey
   )
 where
 
@@ -75,7 +76,7 @@ unpackStreamM (MRC.FilterM t) = S.filter t
 unpackStreamM (MRC.UnpackM f) = S.concat . S.mapM f
 {-# INLINABLE unpackStreamM #-}
 
-
+-- This all uses [c] internally and I'd rather it used a Stream there as well.  But when I try to do that, it's slow.
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
 groupByHashedKey
   :: forall m k c r
@@ -88,101 +89,137 @@ groupByHashedKey s = S.effect $ do
   return $ HMS.foldrWithKey (\k lc s -> S.cons (k, lc) s) (return r) hm
 {-# INLINABLE groupByHashedKey #-}
 
--- | group the mapped and assigned values by key using Data.Map.Strict
-groupByOrdKey
+-- | group the mapped and assigned values by key using a Data.Map.Strict
+groupByOrderedKey
   :: forall m k c r
    . (Monad m, Ord k)
   => Stream (Of (k, c)) m r
   -> Stream (Of (k, [c])) m r
-groupByOrdKey s = S.effect $ do
+groupByOrderedKey s = S.effect $ do
   (lkc S.:> r) <- S.toList s
   let hm = MS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
   return $ MS.foldrWithKey (\k lc s -> S.cons (k, lc) s) (return r) hm
-{-# INLINABLE groupByOrdKey #-}
+{-# INLINABLE groupByOrderedKey #-}
 
--- | map-reduce-fold engine builder returning a [] result
-streamEngine
+newtype StreamResult m d = StreamResult { unRes :: Stream (Of d) m () }
+resultToList :: Monad m => StreamResult m d -> m [d]
+resultToList = S.toList_ . unRes
+
+-- | map-reduce-fold engine builder returning a Stream result
+streamingEngine
   :: (  forall c r
       . Stream (Of (k, c)) Identity r
      -> Stream (Of (k, [c])) Identity r
      )
-  -> MRE.MapReduceFold y k c [] x d
-streamEngine groupByKey u (MRC.Assign a) r = FL.Fold
+  -> MRE.MapReduceFold y k c (StreamResult Identity) x d
+streamingEngine groupByKey u (MRC.Assign a) r = fmap StreamResult $ FL.Fold
   (\s a -> S.cons a s)
   (return ())
-  ( runIdentity
-  . S.toList_
-  . S.map (\(k, lc) -> MRE.reduceFunction r k lc)
+  ( S.map (\(k, lc) -> MRE.reduceFunction r k lc)
   . groupByKey
   . S.map a
   . unpackStream u
   )
-{-# INLINABLE streamEngine #-}
+{-# INLINABLE streamingEngine #-}
 
--- | effectful map-reduce-fold engine builder returning a [] result
-streamEngineM
+-- | effectful map-reduce-fold engine builder returning a StreamResult
+streamingEngineM
   :: Monad m
   => (forall c r . Stream (Of (k, c)) m r -> Stream (Of (k, [c])) m r)
-  -> MRE.MapReduceFoldM m y k c [] x d
-streamEngineM groupByKey u (MRC.AssignM a) r =
-  MRC.postMapM id $ FL.generalize $ FL.Fold
+  -> MRE.MapReduceFoldM m y k c (StreamResult m) x d
+streamingEngineM groupByKey u (MRC.AssignM a) r =
+  fmap StreamResult . FL.generalize $ FL.Fold
     (\s a -> S.cons a s)
     (return ())
-    ( S.toList_
-    . S.mapM (\(k, lc) -> MRE.reduceFunctionM r k lc)
+    ( S.mapM (\(k, lc) -> MRE.reduceFunctionM r k lc)
     . groupByKey
     . S.mapM a
     . unpackStreamM u
     )
--- NB: @postMapM id@ is sneaky.  id :: m d -> m d interpreted as a -> m b implies b ~ d so you get
--- postMapM id (FoldM m x (m d)) :: FoldM m x d
--- which makes more sense if you recall that postMapM f just changes the "done :: x -> m (m d)" step to done' = done >>= f and
--- (>>= id) = join . fmap id = join, so done' :: x -> m d, as we need for the output type.
-{-# INLINABLE streamEngineM #-}
+{-# INLINABLE streamingEngineM #-}
 
--- Unused below.  Leaving here in case I need it later.
-
--- NB: groupBy Step leaves Stream (Stream (Of (k,c)) m) m r
--- TODO: This feels deeply unidiomatic
--- And I think it's O(N^2). Ick.  There's no binary search here.
-gatherStreamNaive
-  :: forall m k c r
-   . (Monad m, Eq k)
-  => Stream (Of (k, c)) m r
-  -> Stream (Of (k, Stream (Of c) m ())) m r
-gatherStreamNaive = S.catMaybes . S.mapped f . S.groupBy
-  (\x y -> (fst x) == (fst y))
- where
-  f :: Stream (Of (k, c)) m x -> m (Of (Maybe (k, Stream (Of c) m ())) x)
-  f s = do
-    (mkc S.:> x) <- S.head s
-    case mkc of
-      Nothing -> return $ Nothing S.:> x
-      Just (k, _) ->
-        return $ (Just ((k, fmap (const ()) (S.map snd s)))) S.:> x
-{-# INLINABLE gatherStreamNaive #-}
-
-{- This one is bad! 
-gatherStream3
-  :: forall m k c r
-   . (Monad m, Hashable k, Eq k)
-  => Stream (Of (k, c)) m r
-  -> Stream (Of (k, Stream (Of c) m ())) m r
-gatherStream3 s = S.effect $ do
-  (lkc S.:> r) <- S.toList s
-  let hm = HML.fromListWith (<>) $ fmap (second $ S.yield) lkc
-  return $ HML.foldrWithKey (\k sc s -> S.cons (k, sc) s) (return r) hm
-{-# INLINABLE gatherStream3 #-}
--}
-
-
+{-
 -- | case analysis of Reduce for streaming based mapReduce
-reduceStream :: Monad m => MRC.Reduce k x d -> k -> Stream (Of x) m r -> m d
-reduceStream (MRC.Reduce     f) k s = fmap (f k) $ S.toList_ s
-reduceStream (MRC.ReduceFold f) k s = FL.purely S.fold_ (f k) s
+reduceStream :: MRC.Reduce k x d -> k -> Stream (Of x) Identity r -> d
+reduceStream (MRC.Reduce     f) k s = runIdentity $ fmap (f k) $ S.toList_ s
+reduceStream (MRC.ReduceFold f) k s = runIdentity $ FL.purely S.fold_ (f k) s
 {-# INLINABLE reduceStream #-}
 
 reduceStreamM :: Monad m => MRC.ReduceM m k x d -> k -> Stream (Of x) m r -> m d
 reduceStreamM (MRC.ReduceM     f) k s = S.toList_ s >>= (f k)
 reduceStreamM (MRC.ReduceFoldM f) k s = FL.impurely S.foldM_ (f k) s
 {-# INLINABLE reduceStreamM #-}
+-}
+
+{-
+groupByHashedKey
+  :: forall k c r
+   . (Hashable k, Eq k)
+  => Stream (Of (k, c)) Identity r
+  -> Stream (Of (k, [c])) Identity r
+groupByHashedKey s =
+  S.unfoldr (return . unFoldStep) $ second HMS.toList $ S.destroy
+    s
+    construct
+    runIdentity
+    (\r -> (r, HMS.empty))
+ where
+  construct :: Of (k, c) (r, HMS.HashMap k [c]) -> (r, HMS.HashMap k [c])
+  construct ((k, c) S.:> (r, t)) = (r, HMS.insertWith (<>) k [c] t)
+  unFoldStep :: (r, [(k, x)]) -> (Either r ((k, x), (r, [(k, x)])))
+  unFoldStep (r, []    ) = Left r
+  unFoldStep (r, x : xs) = Right (x, (r, xs))
+{-# INLINABLE groupByHashedKey #-}
+
+groupByHashedKeyM
+  :: forall k c r m
+   . (Monad m, Hashable k, Eq k)
+  => Stream (Of (k, c)) m r
+  -> Stream (Of (k, [c])) m r
+groupByHashedKeyM s =
+  S.effect
+    $ fmap (S.unfoldr (return . unFoldStep) . second HMS.toList)
+    $ S.destroy s construct join (\r -> return (r, HMS.empty))
+ where
+  construct :: Of (k, c) (m (r, HMS.HashMap k [c])) -> m (r, HMS.HashMap k [c])
+  construct ((k, c) S.:> mrt) = fmap (second $ HMS.insertWith (<>) k [c]) mrt
+  unFoldStep :: (r, [(k, x)]) -> (Either r ((k, x), (r, [(k, x)])))
+  unFoldStep (r, []    ) = Left r
+  unFoldStep (r, x : xs) = Right (x, (r, xs))
+{-# INLINABLE groupByHashedKeyM #-}
+
+-- | group the mapped and assigned values by key using a Data.Map.Strict
+groupByOrderedKey
+  :: forall k c r
+   . Ord k
+  => Stream (Of (k, c)) Identity r
+  -> Stream (Of (k, [c])) Identity r
+groupByOrderedKey s = S.unfoldr (return . unFoldStep)
+  $ S.destroy s construct runIdentity (\r -> (r, MS.empty))
+ where
+  construct :: Of (k, c) (r, MS.Map k [c]) -> (r, MS.Map k [c])
+  construct ((k, c) S.:> (r, t)) = (r, MS.insertWith (<>) k [c] t)
+  unFoldStep :: (r, MS.Map k x) -> (Either r ((k, x), (r, MS.Map k x)))
+  unFoldStep (r, t) =
+    if MS.null t then Left r else Right (MS.elemAt 0 t, (r, MS.drop 1 t))
+{-# INLINABLE groupByOrderedKey #-}
+
+groupByOrderedKeyM
+  :: forall k c r m
+   . (Monad m, Ord k)
+  => Stream (Of (k, c)) m r
+  -> Stream (Of (k, [c])) m r
+groupByOrderedKeyM s =
+  S.effect $ fmap (S.unfoldr (return . unFoldStep)) $ S.destroy
+    s
+    construct
+    join
+    (\r -> return (r, MS.empty))
+ where
+  construct :: Of (k, c) (m (r, MS.Map k [c])) -> m (r, MS.Map k [c])
+  construct ((k, c) S.:> mrt) = fmap (second $ MS.insertWith (<>) k [c]) mrt
+  unFoldStep :: (r, MS.Map k x) -> (Either r ((k, x), (r, MS.Map k x)))
+  unFoldStep (r, t) =
+    if MS.null t then Left r else Right (MS.elemAt 0 t, (r, MS.drop 1 t))
+{-# INLINABLE groupByOrderedKeyM #-}
+-}

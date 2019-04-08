@@ -37,30 +37,33 @@ library
                  , Control.MapReduce.Engines
                  , Control.MapReduce.Engines.GroupBy
                  , Control.MapReduce.Engines.List
-                 , Control.MapReduce.Engines.Streams
+                 , Control.MapReduce.Engines.Streaming
+                 , Control.MapReduce.Engines.Streamly
                  , Control.MapReduce.Engines.Vector
                  , Control.MapReduce.Engines.Parallel
 
   build-depends:   dlist
                  , hashable
                  , parallel
-                 , recursion-schemes
                  , split
                  , streaming
+                 , streamly
                  , text
                  , unordered-containers
                  , vector
-                 , yaya
   hs-source-dirs:      src
   default-language:    Haskell2010
 
   
 benchmark bench-map-reduce
-  import: deps                      
+  import: deps
+  if flag(dump-core)
+    build-depends: dump-core
+    ghc-options: -fforce-recomp -fplugin=DumpCore -fplugin-opt DumpCore:core-html                    
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench
   other-modules:       
-  ghc-options:         -O3
+  ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
 --                       -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches
   main-is:             MapReduce.hs
   build-depends:       map-reduce-folds, foldl, base, criterion, unordered-containers, deepseq, text, random

@@ -133,6 +133,12 @@ toTry =
   , ( "MRG.groupByTree2: recursion-schemes, hylo (unfold to Tree, merge back up)"
     , MRG.groupByTree2
     )
+  , ( "MRG.listViaMetamorphism: , meta (fold to Map, unfold to List)"
+    , MRG.listViaMetamorphism
+    )
+  , ( "MRG.listViaHylomorphism: , recursion-schemes hylo (unfold to Map, fold to List)"
+    , MRG.listViaMetamorphism
+    )
 {-      
     , ( "MRG.groupByNaiveInsert2: recursion-schemes, naive insert + group + internal x -> [x]"
       , MRG.groupByNaiveInsert2

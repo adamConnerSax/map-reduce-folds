@@ -55,7 +55,7 @@ where
 
 import qualified Control.MapReduce.Core        as MR
 import           Control.MapReduce.Core -- for re-export.  I don't like the unqualified-ness of this.
-import qualified Control.MapReduce.Engines.Streams
+import qualified Control.MapReduce.Engines.Streaming
                                                as MRS
 import qualified Control.MapReduce.Engines.List
                                                as MRL
@@ -63,7 +63,9 @@ import qualified Control.MapReduce.Engines.List
 --import qualified Control.MapReduce.Parallel    as MRP
 
 import qualified Control.Foldl                 as FL
-import           Data.Functor.Identity          ( Identity(Identity) )
+import           Data.Functor.Identity          ( Identity(Identity)
+                                                , runIdentity
+                                                )
 
 import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
@@ -143,7 +145,9 @@ mapReduceFold
   -> MR.Assign k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.Reduce k c d -- ^ reduce a grouped [c] to d
   -> FL.Fold x [d]
-mapReduceFold = MRS.streamEngine MRS.groupByOrdKey
+mapReduceFold u a r =
+  fmap (runIdentity . MRS.resultToList)
+    $ MRS.streamingEngine MRS.groupByOrderedKey u a r
 {-# INLINABLE mapReduceFold #-}
 
 mapReduceFoldM
@@ -152,7 +156,12 @@ mapReduceFoldM
   -> MR.AssignM m k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.ReduceM m k c d -- ^ reduce a grouped [c] to d
   -> FL.FoldM m x [d]
-mapReduceFoldM = MRS.streamEngineM MRS.groupByOrdKey
+mapReduceFoldM u a r =
+  MR.postMapM id $ fmap MRS.resultToList $ MRS.streamingEngineM
+    MRS.groupByOrderedKey
+    u
+    a
+    r
 {-# INLINABLE mapReduceFoldM #-}
 
 hashableMapReduceFold
@@ -161,7 +170,9 @@ hashableMapReduceFold
   -> MR.Assign k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.Reduce k c d -- ^ reduce a grouped [c] to d
   -> FL.Fold x [d]
-hashableMapReduceFold = MRS.streamEngine MRS.groupByHashedKey
+hashableMapReduceFold u a r =
+  fmap (runIdentity . MRS.resultToList)
+    $ MRS.streamingEngine MRS.groupByHashedKey u a r
 {-# INLINABLE hashableMapReduceFold #-}
 
 hashableMapReduceFoldM
@@ -170,7 +181,12 @@ hashableMapReduceFoldM
   -> MR.AssignM m k y c -- ^ assign each y to a key value pair (k,c)
   -> MR.ReduceM m k c d -- ^ reduce a grouped [c] to d
   -> FL.FoldM m x [d]
-hashableMapReduceFoldM = MRS.streamEngineM MRS.groupByHashedKey
+hashableMapReduceFoldM u a r =
+  MR.postMapM id $ fmap MRS.resultToList $ MRS.streamingEngineM
+    MRS.groupByHashedKey
+    u
+    a
+    r
 {-# INLINABLE hashableMapReduceFoldM #-}
 
 -- | do only the unpack step.

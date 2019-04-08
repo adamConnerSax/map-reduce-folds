@@ -11,13 +11,15 @@ import           Control.MapReduce.Engines.GroupBy
                                                as MRG
 import           Control.MapReduce.Engines.List
                                                as MRL
-import           Control.MapReduce.Engines.Streams
+import           Control.MapReduce.Engines.Streaming
                                                as MRS
+import           Control.MapReduce.Engines.Streamly
+                                               as MRSL
 import           Control.MapReduce.Engines.Vector
                                                as MRV
 import           Control.MapReduce.Engines.Parallel
                                                as MRP
-
+import           Data.Functor.Identity          ( runIdentity )
 import           Data.Text                     as T
 import           Data.List                     as L
 import           Data.HashMap.Lazy             as HM
@@ -79,27 +81,27 @@ mapReduceList = FL.fold
   )
 {-# INLINE mapReduceList #-}
 
-mapReduceListTVL :: Foldable g => g (Char, Int) -> [(Char, Double)]
-mapReduceListTVL = FL.fold
-  (MRL.listEngine MRG.groupByTVL
-                  (MR.Filter filterPF)
-                  (MR.Assign id)
-                  (MR.Reduce reducePF)
-  )
-{-# INLINE mapReduceListTVL #-}
 
-
-mapReduceStream :: Foldable g => g (Char, Int) -> [(Char, Double)]
-mapReduceStream = FL.fold
-  (MRS.streamEngine MRS.groupByHashedKey
-                    (MR.Filter filterPF)
-                    (MR.Assign id)
-                    (MR.Reduce reducePF)
+mapReduceStreaming :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceStreaming = runIdentity . MRS.resultToList . FL.fold
+  (MRS.streamingEngine MRS.groupByHashedKey
+                       (MR.Filter filterPF)
+                       (MR.Assign id)
+                       (MR.Reduce reducePF)
   )
-{-# INLINE mapReduceStream #-}
+{-# INLINE mapReduceStreaming #-}
+
+mapReduceStreamly :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceStreamly = runIdentity . MRSL.resultToList . FL.fold
+  ((MRSL.streamlyEngine @MRSL.SerialT) MRSL.groupByHashedKey
+                                       (MR.Filter filterPF)
+                                       (MR.Assign id)
+                                       (MR.Reduce reducePF)
+  )
+{-# INLINE mapReduceStreamly #-}
 
 mapReduceVector :: Foldable g => g (Char, Int) -> [(Char, Double)]
-mapReduceVector = FL.fold
+mapReduceVector = MRV.toList . FL.fold
   (MRV.vectorEngine MRV.groupByHashedKey
                     (MR.Filter filterPF)
                     (MR.Assign id)
@@ -125,9 +127,10 @@ benchOne dat = bgroup
   [ bench "direct" $ nf direct dat
   , bench "directFoldl" $ nf directFoldl dat
   , bench "mapReduce ([] Engine, strict hash map)" $ nf mapReduceList dat
-  , bench "mapReduce ([] Engine, Ord, group by TVL)" $ nf mapReduceListTVL dat
   , bench "mapReduce (Streaming.Stream Engine, strict hash map)"
-    $ nf mapReduceStream dat
+    $ nf mapReduceStreaming dat
+  , bench "mapReduce (Streamly.SerialT Engine, strict hash map)"
+    $ nf mapReduceStreamly dat
   , bench "mapReduce (Data.Vector Engine, strict hash map)"
     $ nf mapReduceVector dat
   , bench "parMapReduce" $ nf parMapReduce dat
@@ -177,25 +180,26 @@ mapReduce2List = FL.fold
                   (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
-mapReduce2ListTVL :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
-mapReduce2ListTVL = FL.fold
-  (MRL.listEngine MRG.groupByTVL
-                  (MR.Unpack unpackMF)
-                  (MR.Assign assignMF)
-                  (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
+
+mapReduce2Streaming :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
+mapReduce2Streaming = runIdentity . MRS.resultToList . FL.fold
+  (MRS.streamingEngine MRS.groupByHashedKey
+                       (MR.Unpack unpackMF)
+                       (MR.Assign assignMF)
+                       (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
-
-mapReduce2Stream :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
-mapReduce2Stream = FL.fold
-  (MRS.streamEngine MRS.groupByHashedKey
-                    (MR.Unpack unpackMF)
-                    (MR.Assign assignMF)
-                    (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
+mapReduce2Streamly :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
+mapReduce2Streamly = runIdentity . MRSL.resultToList . FL.fold
+  ((MRSL.streamlyEngine @MRSL.SerialT)
+    MRSL.groupByHashedKey
+    (MR.Unpack unpackMF)
+    (MR.Assign assignMF)
+    (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
 mapReduce2Vector :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
-mapReduce2Vector = FL.fold
+mapReduce2Vector = MRV.toList . FL.fold
   (MRV.vectorEngine MRV.groupByHashedKey
                     (MR.Unpack unpackMF)
                     (MR.Assign assignMF)
@@ -216,10 +220,10 @@ benchTwo dat = bgroup
   [ bench "direct" $ nf directM dat
   , bench "map-reduce-fold ([] Engine, strict hash map, serial)"
     $ nf mapReduce2List dat
-  , bench "map-reduce-fold ([] Engine, Ord, groupBy TVL)"
-    $ nf mapReduce2List dat
   , bench "map-reduce-fold (Streaming.Stream Engine, strict hash map, serial)"
-    $ nf mapReduce2Stream dat
+    $ nf mapReduce2Streaming dat
+  , bench "map-reduce-fold (Streamly.SerialT Engine, strict hash map, serial)"
+    $ nf mapReduce2Streamly dat
   , bench "map-reduce-fold (Data.Vector Engine, strict hash map, serial)"
     $ nf mapReduce2Vector dat
   , bench "map-reduce-fold ([] Engine, lazy hash map, parallel)"
