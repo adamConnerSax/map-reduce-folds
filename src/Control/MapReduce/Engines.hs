@@ -37,13 +37,6 @@ where
 import qualified Control.MapReduce.Core        as MRC
 
 import qualified Control.Foldl                 as FL
---import qualified Data.List                     as L
-import qualified Data.Foldable                 as F
---import           Data.Hashable                  ( Hashable )
---import qualified Data.HashMap.Lazy             as HML
---import qualified Data.Map                      as ML
-
---import           Control.Arrow                  ( second )
 
 
 -- | case analysis of Reduce

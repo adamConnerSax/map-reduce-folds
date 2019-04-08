@@ -41,21 +41,13 @@ import qualified Control.MapReduce.Core        as MRC
 import qualified Control.MapReduce.Engines     as MRE
 
 import qualified Control.Foldl                 as FL
-import           Data.Bool                      ( bool )
-import           Data.Functor.Identity          ( Identity(Identity)
-                                                , runIdentity
-                                                )
-import           Control.Monad                  ( (>=>)
-                                                , (<=<)
-                                                , join
-                                                )
+import           Control.Monad                  ( (<=<) )
 import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
-import qualified Data.HashMap.Lazy             as HML
+--import qualified Data.HashMap.Lazy             as HML
 import qualified Data.HashMap.Strict           as HMS
-import qualified Data.Map                      as ML
+--import qualified Data.Map                      as ML
 import qualified Data.Map.Strict               as MS
-import qualified Data.Profunctor               as P
 import qualified Data.Vector                   as V
 import           Data.Vector                    ( Vector
                                                 , toList
@@ -82,8 +74,8 @@ unpackVectorM (MRC.UnpackM f) =
 groupByHashedKey
   :: forall k c . (Hashable k, Eq k) => Vector (k, c) -> Vector (k, [c])
 groupByHashedKey v =
-  let hm = HML.fromListWith (<>) $ V.toList $ fmap (second $ pure @[]) v
-  in  V.fromList $ HML.toList hm -- HML.foldrWithKey (\k lc v -> V.snoc v (k,lc)) V.empty hm 
+  let hm = HMS.fromListWith (<>) $ V.toList $ fmap (second $ pure @[]) v
+  in  V.fromList $ HMS.toList hm -- HML.foldrWithKey (\k lc v -> V.snoc v (k,lc)) V.empty hm 
 {-# INLINABLE groupByHashedKey #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict

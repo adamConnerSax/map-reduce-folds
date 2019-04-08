@@ -40,26 +40,18 @@ import qualified Control.MapReduce.Core        as MRC
 import qualified Control.MapReduce.Engines     as MRE
 
 import qualified Control.Foldl                 as FL
---import           Control.Monad                  ( join )
-import           Data.Bool                      ( bool )
---import qualified Data.List                     as L
-import           Data.Functor.Identity          ( Identity(Identity)
-                                                , runIdentity
-                                                )
-import qualified Data.Foldable                 as F
+import           Data.Functor.Identity          ( Identity )
 import           Data.Hashable                  ( Hashable )
-import qualified Data.HashMap.Lazy             as HML
+--import qualified Data.HashMap.Lazy             as HML
 import qualified Data.HashMap.Strict           as HMS
-import qualified Data.Map                      as ML
+--import qualified Data.Map                      as ML
 import qualified Data.Map.Strict               as MS
-import qualified Data.Profunctor               as P
 import qualified Streaming.Prelude             as S
 import qualified Streaming                     as S
 import           Streaming                      ( Stream
                                                 , Of
                                                 )
 import           Control.Arrow                  ( second )
-
 
 
 -- | case analysis of Unpack for streaming based mapReduce
@@ -86,7 +78,7 @@ groupByHashedKey
 groupByHashedKey s = S.effect $ do
   (lkc S.:> r) <- S.toList s
   let hm = HMS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
-  return $ HMS.foldrWithKey (\k lc s -> S.cons (k, lc) s) (return r) hm
+  return $ HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') (return r) hm
 {-# INLINABLE groupByHashedKey #-}
 
 -- | group the mapped and assigned values by key using a Data.Map.Strict
@@ -98,7 +90,7 @@ groupByOrderedKey
 groupByOrderedKey s = S.effect $ do
   (lkc S.:> r) <- S.toList s
   let hm = MS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
-  return $ MS.foldrWithKey (\k lc s -> S.cons (k, lc) s) (return r) hm
+  return $ MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') (return r) hm
 {-# INLINABLE groupByOrderedKey #-}
 
 newtype StreamResult m d = StreamResult { unRes :: Stream (Of d) m () }
@@ -107,13 +99,13 @@ resultToList = S.toList_ . unRes
 
 -- | map-reduce-fold engine builder returning a Stream result
 streamingEngine
-  :: (  forall c r
-      . Stream (Of (k, c)) Identity r
-     -> Stream (Of (k, [c])) Identity r
+  :: (  forall z r
+      . Stream (Of (k, z)) Identity r
+     -> Stream (Of (k, [z])) Identity r
      )
   -> MRE.MapReduceFold y k c (StreamResult Identity) x d
 streamingEngine groupByKey u (MRC.Assign a) r = fmap StreamResult $ FL.Fold
-  (\s a -> S.cons a s)
+  (flip S.cons)
   (return ())
   ( S.map (\(k, lc) -> MRE.reduceFunction r k lc)
   . groupByKey
@@ -125,11 +117,11 @@ streamingEngine groupByKey u (MRC.Assign a) r = fmap StreamResult $ FL.Fold
 -- | effectful map-reduce-fold engine builder returning a StreamResult
 streamingEngineM
   :: Monad m
-  => (forall c r . Stream (Of (k, c)) m r -> Stream (Of (k, [c])) m r)
+  => (forall z r . Stream (Of (k, z)) m r -> Stream (Of (k, [z])) m r)
   -> MRE.MapReduceFoldM m y k c (StreamResult m) x d
 streamingEngineM groupByKey u (MRC.AssignM a) r =
   fmap StreamResult . FL.generalize $ FL.Fold
-    (\s a -> S.cons a s)
+    (flip S.cons)
     (return ())
     ( S.mapM (\(k, lc) -> MRE.reduceFunctionM r k lc)
     . groupByKey

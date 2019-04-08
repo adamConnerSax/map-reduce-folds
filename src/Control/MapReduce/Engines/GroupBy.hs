@@ -37,21 +37,16 @@ module Control.MapReduce.Engines.GroupBy
   )
 where
 
-import           Data.Bool                      ( bool )
-import qualified Data.DList                    as DL
-import           Data.DList                     ( DList )
-import           Data.Function                  ( on )
+
 import qualified Data.Map.Strict               as MS
 import qualified Data.HashMap.Strict           as HMS
-import           Data.Maybe                     ( fromMaybe )
-import qualified Data.List                     as L
-import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
 import           Control.Arrow                  ( second )
 import qualified Control.Foldl                 as FL
-import           GHC.Exts                       ( IsList
-                                                , Item
-                                                )
+
+
+
+
 
 {-|
 General groupBy capturing the idea that we fold to some grouping structure and then fold that structure back to our
@@ -59,7 +54,7 @@ original container.
 -}
 -- TODO: Is it beneficial to replace the pair ((t -> [(k,l)]),(forall a. FL.Fold a (g a))) with (t -> g (k,l)) ?
 groupBy
-  :: forall t k c v l g
+  :: forall t k v l g
    . (Foldable g, Functor g)
   => FL.Fold (k, v) t -- ^ fold to tree
   -> (t -> [(k, l)]) -- ^ tree to List
@@ -69,6 +64,20 @@ groupBy
 groupBy foldToMap mapToList foldOut x =
   FL.fold foldOut . mapToList . FL.fold foldToMap $ x
 {-# INLINABLE groupBy #-}
+
+{-
+groupByM
+  :: forall t k c v l g m
+   . (Traversable g, Monad m)
+  => FL.FoldM m (k, v) t -- ^ fold to tree
+  -> (t -> [(k, l)]) -- ^ tree to List
+  -> (forall a . FL.FoldM m a (g a)) -- ^ fold to g
+  -> g (k, v)
+  -> g (k, l)
+groupByA foldToMap mapToList foldOut x =
+  FL.fold foldOut . mapToList . FL.fold foldToMap $ x
+{-# INLINABLE groupBy #-}
+-}
 
 groupByOrderedKey
   :: forall g k v l

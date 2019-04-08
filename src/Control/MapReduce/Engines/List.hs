@@ -42,8 +42,6 @@ import qualified Control.MapReduce.Core        as MRC
 import qualified Control.MapReduce.Engines     as MRE
 
 import qualified Control.Foldl                 as FL
---import           Control.Monad                  ( join )
-import           Data.Bool                      ( bool )
 import qualified Data.List                     as L
 import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
@@ -57,7 +55,7 @@ import           Control.Arrow                  ( second )
 -- | case analysis of Unpack for list based mapReduce
 unpackList :: MRC.Unpack x y -> [x] -> [y]
 unpackList (MRC.Filter t) = L.filter t
-unpackList (MRC.Unpack f) = L.concat . fmap (F.toList . f)
+unpackList (MRC.Unpack f) = L.concatMap (F.toList . f)
 {-# INLINABLE unpackList #-}
 
 -- | case analysis of Unpack for list based mapReduce
