@@ -47,6 +47,9 @@ module Control.MapReduce.Simple
   , hashableMapReduceFoldM
   , unpackOnlyFold
   , unpackOnlyFoldM
+  -- * helper functions to simplify results
+  , concatFold
+  , concatFoldM
   -- * re-exports
   , module Control.MapReduce.Core
   , Hashable
@@ -65,6 +68,7 @@ import qualified Control.MapReduce.Engines.List
 --import qualified Control.MapReduce.Parallel    as MRP
 
 import qualified Control.Foldl                 as FL
+import qualified Data.Foldable                 as F
 import           Data.Functor.Identity          ( Identity(Identity)
                                                 , runIdentity
                                                 )
@@ -139,6 +143,15 @@ foldAndRelabelM fld relabel =
   let q !k = fmap (relabel k) fld in MR.ReduceFoldM q
 {-# INLINABLE foldAndRelabelM #-}
 
+-- | The simple fold types return lists of results.  Often we want to merge these into some other structure via (<>)
+concatFold :: (Monoid d, Foldable g) => FL.Fold a (g d) -> FL.Fold a d
+concatFold = fmap F.fold
+
+-- | The simple fold types return lists of results.  Often we want to merge these into some other structure via (<>)
+concatFoldM
+  :: (Monad m, Monoid d, Foldable g) => FL.FoldM m a (g d) -> FL.FoldM m a d
+concatFoldM = fmap F.fold
+
 mapReduceFold
   :: Ord k
   => MR.Unpack x y -- ^ unpack x to none or one or many y's
@@ -170,7 +183,7 @@ hashableMapReduceFold
   -> FL.Fold x [d]
 hashableMapReduceFold u a r =
   fmap (runIdentity . MRSL.resultToList)
-    $ (MRSL.streamlyEngine @MRSL.SerialT) MRSL.groupByHashedKey u a r
+    $ (MRSL.streamlyEngine @MRSL.SerialT) MRSL.groupByHashableKey u a r
 {-# INLINABLE hashableMapReduceFold #-}
 
 hashableMapReduceFoldM
@@ -181,7 +194,7 @@ hashableMapReduceFoldM
   -> FL.FoldM m x [d]
 hashableMapReduceFoldM u a r =
   MR.postMapM id $ fmap MRST.resultToList $ MRST.streamingEngineM
-    MRST.groupByHashedKey
+    MRST.groupByHashableKey
     u
     a
     r

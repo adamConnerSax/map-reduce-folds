@@ -30,8 +30,8 @@ module Control.MapReduce.Engines.List
     listEngine
   , listEngineM
   -- * groupBy functions
-  , groupByHashedKey
-  , groupByOrdKey
+  , groupByHashableKey
+  , groupByOrderedKey
   -- * Helpers
   , unpackList
   , unpackListM
@@ -65,15 +65,15 @@ unpackListM (MRC.UnpackM f) = fmap L.concat . traverse (fmap F.toList . f)
 {-# INLINABLE unpackListM #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
-groupByHashedKey :: (Hashable k, Eq k) => [(k, c)] -> [(k, [c])]
-groupByHashedKey =
+groupByHashableKey :: (Hashable k, Eq k) => [(k, c)] -> [(k, [c])]
+groupByHashableKey =
   HMS.toList . HMS.fromListWith (<>) . fmap (second $ pure @[])
-{-# INLINABLE groupByHashedKey #-}
+{-# INLINABLE groupByHashableKey #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
-groupByOrdKey :: Ord k => [(k, c)] -> [(k, [c])]
-groupByOrdKey = MS.toList . MS.fromListWith (<>) . fmap (second $ pure @[])
-{-# INLINABLE groupByOrdKey #-}
+groupByOrderedKey :: Ord k => [(k, c)] -> [(k, [c])]
+groupByOrderedKey = MS.toList . MS.fromListWith (<>) . fmap (second $ pure @[])
+{-# INLINABLE groupByOrderedKey #-}
 
 -- | map-reduce-fold engine builder using (Hashable k, Eq k) keys and returning a [] result
 listEngine :: ([(k, c)] -> [(k, [c])]) -> MRE.MapReduceFold y k c [] x d

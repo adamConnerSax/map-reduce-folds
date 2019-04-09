@@ -30,8 +30,8 @@ module Control.MapReduce.Engines.Vector
     vectorEngine
   , vectorEngineM
   -- * groupBy functions
-  , groupByHashedKey
-  , groupByOrdKey
+  , groupByHashableKey
+  , groupByOrderedKey
   -- * re-exports
   , toList
   )
@@ -71,19 +71,19 @@ unpackVectorM (MRC.UnpackM f) =
 
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
-groupByHashedKey
+groupByHashableKey
   :: forall k c . (Hashable k, Eq k) => Vector (k, c) -> Vector (k, [c])
-groupByHashedKey v =
+groupByHashableKey v =
   let hm = HMS.fromListWith (<>) $ V.toList $ fmap (second $ pure @[]) v
   in  V.fromList $ HMS.toList hm -- HML.foldrWithKey (\k lc v -> V.snoc v (k,lc)) V.empty hm 
-{-# INLINABLE groupByHashedKey #-}
+{-# INLINABLE groupByHashableKey #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
-groupByOrdKey :: forall k c . Ord k => Vector (k, c) -> Vector (k, [c])
-groupByOrdKey v =
+groupByOrderedKey :: forall k c . Ord k => Vector (k, c) -> Vector (k, [c])
+groupByOrderedKey v =
   let hm = MS.fromListWith (<>) $ V.toList $ fmap (second $ pure @[]) v
   in  V.fromList $ MS.toList hm --MS.foldrWithKey (\k lc s -> VS.cons (k,lc) s) VS.empty hm
-{-# INLINABLE groupByOrdKey #-}
+{-# INLINABLE groupByOrderedKey #-}
 
 -- | map-reduce-fold engine builder, using Vector.Fusion.Stream.Monadic, returning a Vector result
 vectorEngine

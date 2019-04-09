@@ -93,7 +93,7 @@ mapReduceStreaming = runIdentity . MRS.resultToList . FL.fold
 
 mapReduceStreamly :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceStreamly = runIdentity . MRSL.resultToList . FL.fold
-  ((MRSL.streamlyEngine @MRSL.SerialT) MRSL.groupByHashedKey
+  ((MRSL.streamlyEngine @MRSL.SerialT) MRSL.groupByHashableKey
                                        (MR.Filter filterPF)
                                        (MR.Assign id)
                                        (MR.Reduce reducePF)
@@ -174,7 +174,7 @@ directM =
 
 mapReduce2List :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 mapReduce2List = FL.fold
-  (MRL.listEngine MRL.groupByHashedKey
+  (MRL.listEngine MRL.groupByHashableKey
                   (MR.Unpack unpackMF)
                   (MR.Assign assignMF)
                   (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
@@ -183,7 +183,7 @@ mapReduce2List = FL.fold
 
 mapReduce2Streaming :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 mapReduce2Streaming = runIdentity . MRS.resultToList . FL.fold
-  (MRS.streamingEngine MRS.groupByHashedKey
+  (MRS.streamingEngine MRS.groupByHashableKey
                        (MR.Unpack unpackMF)
                        (MR.Assign assignMF)
                        (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
@@ -192,7 +192,7 @@ mapReduce2Streaming = runIdentity . MRS.resultToList . FL.fold
 mapReduce2Streamly :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 mapReduce2Streamly = runIdentity . MRSL.resultToList . FL.fold
   ((MRSL.streamlyEngine @MRSL.SerialT)
-    MRSL.groupByHashedKey
+    MRSL.groupByHashableKey
     (MR.Unpack unpackMF)
     (MR.Assign assignMF)
     (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
@@ -200,7 +200,7 @@ mapReduce2Streamly = runIdentity . MRSL.resultToList . FL.fold
 
 mapReduce2Vector :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 mapReduce2Vector = MRV.toList . FL.fold
-  (MRV.vectorEngine MRV.groupByHashedKey
+  (MRV.vectorEngine MRV.groupByHashableKey
                     (MR.Unpack unpackMF)
                     (MR.Assign assignMF)
                     (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))

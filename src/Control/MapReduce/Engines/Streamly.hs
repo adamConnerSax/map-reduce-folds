@@ -33,7 +33,7 @@ module Control.MapReduce.Engines.Streamly
   , streamlyEngineM
   , resultToList
   -- * groupBy functions
-  , groupByHashedKey
+  , groupByHashableKey
   , groupByOrderedKey
   -- * re-exports
   , SerialT
@@ -51,7 +51,9 @@ import qualified Control.MapReduce.Engines     as MRE
 import           Control.Arrow                  ( second )
 import qualified Control.Foldl                 as FL
 import           Control.Monad                  ( join )
-import           Data.Functor.Identity          ( Identity )
+import           Data.Functor.Identity          ( Identity
+                                                , runIdentity
+                                                )
 import           Data.Hashable                  ( Hashable )
 --import qualified Data.HashMap.Lazy             as HML
 import qualified Data.HashMap.Strict           as HMS
@@ -79,35 +81,36 @@ unpackStreamM (MRC.FilterM t) = S.filter t -- this is a non-effectful filter
 unpackStreamM (MRC.UnpackM f) = S.concatMapM (fmap S.fromFoldable . f)
 {-# INLINABLE unpackStreamM #-}
 
-effect :: (Monad m, S.IsStream t, Monad (t m)) => m (t m b) -> t m b
-effect = join . S.yieldM -- \x -> S.concatMapM (const x) (S.yield ())
 
 -- This all uses [c] internally and I'd rather it used a Stream there as well.  But when I try to do that, it's slow.
 -- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
--- | group the mapped and assigned values by key using a Data.HashMap.Strict
-groupByHashedKey
+-- | Group streamly stream of (k,c) by hashable key.
+-- NB: this function uses the fact that (SerialT m) is a monad
+groupByHashableKey
   :: forall m k c
    . (Monad m, Hashable k, Eq k)
   => S.SerialT m (k, c)
   -> S.SerialT m (k, [c])
-groupByHashedKey s = effect $ do
-  lkc <- S.toList s
+groupByHashableKey s = do
+  lkc <- S.yieldM (S.toList s)
   let hm = HMS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
-  return $ HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
-{-# INLINABLE groupByHashedKey #-}
+  HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
+{-# INLINABLE groupByHashableKey #-}
 
 -- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
--- | group the mapped and assigned values by key using a Data.Map.Strict
+-- | Group streamly stream of (k,c) by ordered key.
+-- NB: this function uses the fact that (SerialT m) is a monad
 groupByOrderedKey
   :: forall m k c
    . (Monad m, Ord k)
   => S.SerialT m (k, c)
   -> S.SerialT m (k, [c])
-groupByOrderedKey s = effect $ do
-  lkc <- S.toList s
+groupByOrderedKey s = do
+  lkc <- S.yieldM (S.toList s)
   let hm = MS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
-  return $ MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
+  MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
 {-# INLINABLE groupByOrderedKey #-}
+
 
 -- | make your stream into a []
 resultToList :: (Monad m, S.IsStream t) => t m a -> m [a]
@@ -152,14 +155,14 @@ streamlyEngineM groupByKey u (MRC.AssignM a) r =
 
 {-
 -- | case analysis of Reduce for streaming based mapReduce
-reduceStream :: MRC.Reduce k x d -> k -> Stream (Of x) Identity r -> d
-reduceStream (MRC.Reduce     f) k s = runIdentity $ fmap (f k) $ S.toList_ s
-reduceStream (MRC.ReduceFold f) k s = runIdentity $ FL.purely S.fold_ (f k) s
+reduceStream :: MRC.Reduce k x d -> k -> S.SerialT Identity x -> d
+reduceStream (MRC.Reduce     f) k s = runIdentity $ fmap (f k) $ S.toList s
+reduceStream (MRC.ReduceFold f) k s = runIdentity $ FL.purely S.foldl' (f k) s
 {-# INLINABLE reduceStream #-}
 
-reduceStreamM :: Monad m => MRC.ReduceM m k x d -> k -> Stream (Of x) m r -> m d
-reduceStreamM (MRC.ReduceM     f) k s = S.toList_ s >>= (f k)
-reduceStreamM (MRC.ReduceFoldM f) k s = FL.impurely S.foldM_ (f k) s
+reduceStreamM :: Monad m => MRC.ReduceM m k x d -> k -> S.SerialT m x -> m d
+reduceStreamM (MRC.ReduceM     f) k s = S.toList s >>= (f k)
+reduceStreamM (MRC.ReduceFoldM f) k s = FL.impurely S.foldlM' (f k) s
 {-# INLINABLE reduceStreamM #-}
 -}
 

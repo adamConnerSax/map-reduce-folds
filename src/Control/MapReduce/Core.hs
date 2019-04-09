@@ -11,6 +11,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Core
@@ -60,6 +61,8 @@ module Control.MapReduce.Core
   , generalizeAssign
   , generalizeReduce
   -- * Foldl helpers
+  , functionToFold
+  , functionToFoldM
   , postMapM
   -- * re-exports
   , Fold
@@ -73,6 +76,7 @@ import           Control.Foldl                  ( Fold
                                                 ) -- for re-exporting
 
 import qualified Data.Profunctor               as P
+import qualified Data.Sequence                 as S
 import           Control.Arrow                  ( second )
 
 -- | `Unpack` is for "melting" rows (@g ~ [])@ or filtering items (@g ~ Maybe@).
@@ -149,6 +153,22 @@ instance P.Profunctor (AssignM m k) where
 generalizeAssign :: Monad m => Assign k y c -> AssignM m k y c
 generalizeAssign (Assign h) = AssignM $ return . h
 {-# INLINABLE generalizeAssign #-}
+
+seqF :: FL.Fold a (S.Seq a)
+seqF = FL.Fold (S.|>) S.empty id
+
+-- | convert a function which takes a foldable container of x and produces an a into a Fold x a.
+-- uses Data.Sequence.Seq as an intermediate type becuase it should behave well whether
+-- f is a left or right fold
+functionToFold :: (forall h . Foldable h => h x -> a) -> FL.Fold x a
+functionToFold f = fmap f seqF
+
+-- | convert a function which takes a foldable container of x and produces an (m a) into a FoldM m x a.
+-- uses Data.Sequence.Seq as an intermediate type becuase it should behave well whether
+-- f is a left or right fold
+functionToFoldM
+  :: Monad m => (forall h . Foldable h => h x -> m a) -> FL.FoldM m x a
+functionToFoldM f = postMapM f $ FL.generalize seqF
 
 -- | Wrapper for functions to reduce keyed and grouped data to the result type
 -- there are four constructors because we handle non-monadic and monadic reductions and

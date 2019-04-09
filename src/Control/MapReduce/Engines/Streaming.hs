@@ -31,7 +31,7 @@ module Control.MapReduce.Engines.Streaming
   , streamingEngineM
   , resultToList
   -- * groupBy functions
-  , groupByHashedKey
+  , groupByHashableKey
   , groupByOrderedKey
   )
 where
@@ -70,16 +70,16 @@ unpackStreamM (MRC.UnpackM f) = S.concat . S.mapM f
 
 -- This all uses [c] internally and I'd rather it used a Stream there as well.  But when I try to do that, it's slow.
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
-groupByHashedKey
+groupByHashableKey
   :: forall m k c r
    . (Monad m, Hashable k, Eq k)
   => Stream (Of (k, c)) m r
   -> Stream (Of (k, [c])) m r
-groupByHashedKey s = S.effect $ do
+groupByHashableKey s = S.effect $ do
   (lkc S.:> r) <- S.toList s
   let hm = HMS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
   return $ HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') (return r) hm
-{-# INLINABLE groupByHashedKey #-}
+{-# INLINABLE groupByHashableKey #-}
 
 -- | group the mapped and assigned values by key using a Data.Map.Strict
 groupByOrderedKey
