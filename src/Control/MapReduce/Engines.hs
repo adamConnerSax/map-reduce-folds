@@ -35,7 +35,6 @@ module Control.MapReduce.Engines
 where
 
 import qualified Control.MapReduce.Core        as MRC
-
 import qualified Control.Foldl                 as FL
 
 

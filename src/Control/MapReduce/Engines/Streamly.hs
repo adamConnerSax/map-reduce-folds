@@ -48,7 +48,9 @@ where
 import qualified Control.MapReduce.Core        as MRC
 import qualified Control.MapReduce.Engines     as MRE
 
+import           Control.Arrow                  ( second )
 import qualified Control.Foldl                 as FL
+import           Control.Monad                  ( join )
 import           Data.Functor.Identity          ( Identity )
 import           Data.Hashable                  ( Hashable )
 --import qualified Data.HashMap.Lazy             as HML
@@ -65,10 +67,6 @@ import           Streamly                       ( SerialT
                                                 , ParallelT
                                                 )
 
-import           Control.Arrow                  ( second )
-
-
-
 -- | case analysis of Unpack for streaming based mapReduce
 unpackStream :: S.IsStream t => MRC.Unpack x y -> t Identity x -> t Identity y
 unpackStream (MRC.Filter t) = S.filter t
@@ -81,10 +79,11 @@ unpackStreamM (MRC.FilterM t) = S.filter t -- this is a non-effectful filter
 unpackStreamM (MRC.UnpackM f) = S.concatMapM (fmap S.fromFoldable . f)
 {-# INLINABLE unpackStreamM #-}
 
-effect :: (Monad m, S.IsStream t) => m (t m b) -> t m b
-effect x = S.concatMapM (const x) (S.yield ())
+effect :: (Monad m, S.IsStream t, Monad (t m)) => m (t m b) -> t m b
+effect = join . S.yieldM -- \x -> S.concatMapM (const x) (S.yield ())
 
 -- This all uses [c] internally and I'd rather it used a Stream there as well.  But when I try to do that, it's slow.
+-- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
 groupByHashedKey
   :: forall m k c
@@ -97,6 +96,7 @@ groupByHashedKey s = effect $ do
   return $ HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
 {-# INLINABLE groupByHashedKey #-}
 
+-- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
 -- | group the mapped and assigned values by key using a Data.Map.Strict
 groupByOrderedKey
   :: forall m k c
