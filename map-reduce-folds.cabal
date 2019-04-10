@@ -1,7 +1,7 @@
 cabal-version:       2.2.0
 
 name:                map-reduce-folds
-version:             0.2.0.0
+version:             0.3.0.0
 synopsis:            foldl wrappers for map-reduce
 description:         wrappers around foldl folds that make it simpler to do map-reduce (or split-apply-combine) style folds.  Includes some general types
                      as well as some simple building blocks and tools for executing the folds in parallel.
@@ -20,10 +20,12 @@ flag dump-core
   default:     False
             
 common deps
-  build-depends: base >= 4.11.1.0
-               , containers
-               , foldl
-               , profunctors               
+  build-depends: base                 >= 4.12.0 && < 4.13,
+                 containers           >= 0.6.0 && < 0.7,
+                 foldl                >= 1.4.5 && < 1.5,
+                 profunctors          >= 5.3 && < 5.4,
+                 text                 >= 1.2.3 && < 1.3,
+                 unordered-containers >= 0.2.10 && < 0.3
                
 library
   import: deps
@@ -42,15 +44,14 @@ library
                  , Control.MapReduce.Engines.Vector
                  , Control.MapReduce.Engines.Parallel
 
-  build-depends:   dlist
-                 , hashable
-                 , parallel
-                 , split
-                 , streaming
-                 , streamly
-                 , text
-                 , unordered-containers
-                 , vector
+  build-depends: dlist                >= 0.8.0 && < 0.9,
+                 hashable             >= 1.2.7 && < 1.3,
+                 vector               >= 0.12.0 && < 0.13,
+                 parallel             >= 3.2.2 && < 3.3,
+                 split                >= 0.2.3 && < 0.3,
+                 streaming            >= 0.2.2 && < 0.3,
+                 streamly             >= 0.6.1 && < 0.7
+
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -66,20 +67,9 @@ benchmark bench-map-reduce
   ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
 --                       -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches
   main-is:             MapReduce.hs
-  build-depends:       map-reduce-folds, foldl, base, criterion, unordered-containers, deepseq, text, random
+  build-depends:       map-reduce-folds >= 0.3.0.0, 
+                       criterion ,
+                       deepseq ,
+                       random
   default-language:    Haskell2010
 
-benchmark bench-groupBy
-  import: deps
-  if flag(dump-core)
-    build-depends: dump-core
-    ghc-options: -fforce-recomp -fplugin=DumpCore -fplugin-opt DumpCore:core-html -dinline-check toListCoalg
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      bench
-  other-modules:       
-  ghc-options:         -O2 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
-                       -- -ddump-to-file -ddump-simpl -dsuppress-type-applications -dsuppress-coercions -dsuppress-uniques -dsuppress-module-prefixes
---                       -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches
-  main-is:             GroupBy.hs
-  build-depends:       map-reduce-folds, foldl, base, criterion, unordered-containers, deepseq, text, random, weigh
-  default-language:    Haskell2010                   

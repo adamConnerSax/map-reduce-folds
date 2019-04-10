@@ -17,8 +17,8 @@ import           Control.MapReduce.Engines.Streamly
                                                as MRSL
 import           Control.MapReduce.Engines.Vector
                                                as MRV
-import           Control.MapReduce.Engines.Parallel
-                                               as MRP
+--import           Control.MapReduce.Engines.Parallel
+--                                               as MRP
 import           Data.Functor.Identity          ( runIdentity )
 import           Data.Text                     as T
 import           Data.List                     as L
@@ -74,7 +74,7 @@ directFoldl =
 
 mapReduceList :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceList = FL.fold
-  (MRL.listEngine MRL.groupByHashedKey
+  (MRL.listEngine MRL.groupByHashableKey
                   (MR.Filter filterPF)
                   (MR.Assign id)
                   (MR.Reduce reducePF)
@@ -84,7 +84,7 @@ mapReduceList = FL.fold
 
 mapReduceStreaming :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceStreaming = runIdentity . MRS.resultToList . FL.fold
-  (MRS.streamingEngine MRS.groupByHashedKey
+  (MRS.streamingEngine MRS.groupByHashableKey
                        (MR.Filter filterPF)
                        (MR.Assign id)
                        (MR.Reduce reducePF)
@@ -102,14 +102,14 @@ mapReduceStreamly = runIdentity . MRSL.resultToList . FL.fold
 
 mapReduceVector :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceVector = MRV.toList . FL.fold
-  (MRV.vectorEngine MRV.groupByHashedKey
+  (MRV.vectorEngine MRV.groupByHashableKey
                     (MR.Filter filterPF)
                     (MR.Assign id)
                     (MR.Reduce reducePF)
   )
 {-# INLINE mapReduceVector #-}
 
-
+{-
 parMapReduce :: Foldable g => g (Char, Int) -> [(Char, Double)]
 parMapReduce = FL.fold
   (MRP.parallelMapReduceFold
@@ -119,7 +119,7 @@ parMapReduce = FL.fold
     (MR.Reduce reducePF)
   )
 {-# INLINE parMapReduce #-}
-
+-}
 
 
 benchOne dat = bgroup
@@ -133,7 +133,6 @@ benchOne dat = bgroup
     $ nf mapReduceStreamly dat
   , bench "mapReduce (Data.Vector Engine, strict hash map)"
     $ nf mapReduceVector dat
-  , bench "parMapReduce" $ nf parMapReduce dat
   ]
 
 -- a more complex row type
@@ -206,7 +205,7 @@ mapReduce2Vector = MRV.toList . FL.fold
                     (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
-
+{-
 basicListP :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 basicListP = FL.fold
   (MRP.parallelMapReduceFold 6
@@ -214,6 +213,7 @@ basicListP = FL.fold
                              (MR.Assign assignMF)
                              (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
+-}
 
 benchTwo dat = bgroup
   "Task 2, on Map Text Int "
@@ -226,8 +226,6 @@ benchTwo dat = bgroup
     $ nf mapReduce2Streamly dat
   , bench "map-reduce-fold (Data.Vector Engine, strict hash map, serial)"
     $ nf mapReduce2Vector dat
-  , bench "map-reduce-fold ([] Engine, lazy hash map, parallel)"
-    $ nf basicListP dat
   ]
 
 main :: IO ()
