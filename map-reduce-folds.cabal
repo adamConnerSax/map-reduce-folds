@@ -64,8 +64,7 @@ benchmark bench-map-reduce
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench
   other-modules:       
-  ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
---                       -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches
+  ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches -fforce-recomp
   main-is:             MapReduce.hs
   build-depends:       map-reduce-folds >= 0.3.0.0, 
                        criterion ,

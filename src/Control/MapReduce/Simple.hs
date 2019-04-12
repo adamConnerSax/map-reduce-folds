@@ -160,7 +160,7 @@ mapReduceFold
   -> FL.Fold x [d]
 mapReduceFold u a r =
   fmap (runIdentity . MRSL.resultToList)
-    $ (MRSL.streamlyEngine @MRSL.SerialT) MRSL.groupByOrderedKey u a r
+    $ MRSL.streamlyEngine MRSL.groupByOrderedKey u a r
 {-# INLINABLE mapReduceFold #-}
 
 mapReduceFoldM
@@ -170,9 +170,11 @@ mapReduceFoldM
   -> MR.ReduceM m k c d -- ^ reduce a grouped [c] to d
   -> FL.FoldM m x [d]
 mapReduceFoldM u a r =
-  MR.postMapM id
-    $ fmap MRST.resultToList
-    $ (MRST.streamingEngineM MRST.groupByOrderedKey u a r)
+  MR.postMapM id $ fmap MRST.resultToList $ MRST.streamingEngineM
+    MRST.groupByOrderedKey
+    u
+    a
+    r
 {-# INLINABLE mapReduceFoldM #-}
 
 hashableMapReduceFold
@@ -183,7 +185,7 @@ hashableMapReduceFold
   -> FL.Fold x [d]
 hashableMapReduceFold u a r =
   fmap (runIdentity . MRSL.resultToList)
-    $ (MRSL.streamlyEngine @MRSL.SerialT) MRSL.groupByHashableKey u a r
+    $ MRSL.streamlyEngine MRSL.groupByHashableKey u a r
 {-# INLINABLE hashableMapReduceFold #-}
 
 hashableMapReduceFoldM

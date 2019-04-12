@@ -31,6 +31,7 @@ module Control.MapReduce.Engines.Streamly
     -- * Engines
     streamlyEngine
   , streamlyEngineM
+  , concurrentStreamlyEngine
   , resultToList
   -- * groupBy functions
   , groupByHashableKey
@@ -42,6 +43,8 @@ module Control.MapReduce.Engines.Streamly
   , AsyncT
   , WAsyncT
   , ParallelT
+  , MonadAsync
+  , IsStream
   )
 where
 
@@ -67,6 +70,8 @@ import           Streamly                       ( SerialT
                                                 , AsyncT
                                                 , WAsyncT
                                                 , ParallelT
+                                                , MonadAsync
+                                                , IsStream
                                                 )
 
 -- | case analysis of Unpack for streaming based mapReduce
@@ -116,13 +121,12 @@ groupByOrderedKey s = do
 resultToList :: (Monad m, S.IsStream t) => t m a -> m [a]
 resultToList = S.toList . S.adapt
 
--- | map-reduce-fold engine builder returning a (Istream t => t Identity d) result
+-- | map-reduce-fold engine builder returning a @SerialT Identity d@ result
 streamlyEngine
-  :: forall t y k c x d
-   . S.IsStream t
-  => (forall z . S.SerialT Identity (k, z) -> S.SerialT Identity (k, [z]))
-  -> MRE.MapReduceFold y k c (t Identity) x d
-streamlyEngine groupByKey u (MRC.Assign a) r = fmap S.adapt $ FL.Fold
+  :: forall y k c x d
+   . (forall z . S.SerialT Identity (k, z) -> S.SerialT Identity (k, [z]))
+  -> MRE.MapReduceFold y k c (SerialT Identity) x d
+streamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
   (flip S.cons)
   S.nil
   ( S.map (\(k, lc) -> MRE.reduceFunction r k lc)
@@ -132,12 +136,38 @@ streamlyEngine groupByKey u (MRC.Assign a) r = fmap S.adapt $ FL.Fold
   )
 {-# INLINABLE streamlyEngine #-}
 
+-- | case analysis of Unpack for streaming based mapReduce
+unpackConcurrently
+  :: (S.MonadAsync m, S.IsStream t) => MRC.Unpack x y -> t m x -> t m y
+unpackConcurrently (MRC.Filter t) = S.filter t
+unpackConcurrently (MRC.Unpack f) = S.concatMap (S.fromFoldable . f)
+{-# INLINABLE unpackConcurrently #-}
+
+-- | possibly concurrent map-reduce-fold engine builder returning an @(Istream t, MonadAsync m) => t m d@ result
+concurrentStreamlyEngine
+  :: forall t m y k c x d
+   . (S.IsStream t, S.MonadAsync m)
+  => (forall z . S.SerialT m (k, z) -> S.SerialT m (k, [z]))
+  -> MRE.MapReduceFold y k c (t m) x d
+concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
+  (\s a -> (return a) `S.consM` s)
+  S.nil
+  ( S.mapM (\(k, lc) -> return $ MRE.reduceFunction r k lc)
+  . S.adapt @SerialT @t -- make it concurrent for reducing
+  . groupByKey
+  . S.adapt @t @SerialT-- make it serial for grouping
+  . S.mapM (return . a)
+  . (S.|$) (unpackConcurrently u)
+  )
+{-# INLINABLE concurrentStreamlyEngine #-}
+
+
 -- | effectful map-reduce-fold engine builder returning a (Istream t => t m d) result
 -- The "MonadAsync" constraint here more or less requires us ot run in IO or something IO like.
 streamlyEngineM
   :: forall t m y k c x d
    . (S.IsStream t, Monad m, S.MonadAsync m)
-  => (forall z . S.SerialT m (k, z) -> S.SerialT m (k, [z]))
+  => (forall z . SerialT m (k, z) -> SerialT m (k, [z]))
   -> MRE.MapReduceFoldM m y k c (t m) x d
 streamlyEngineM groupByKey u (MRC.AssignM a) r =
   FL.generalize

@@ -2,6 +2,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PolyKinds         #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 import           Criterion.Main
 import           Criterion
 
@@ -35,6 +39,7 @@ import           Data.Maybe                     ( catMaybes )
 import           System.Random                  ( newStdGen
                                                 , randomRs
                                                 )
+
 
 createPairData :: Int -> IO [(Char, Int)]
 createPairData n = do
@@ -93,12 +98,25 @@ mapReduceStreaming = runIdentity . MRS.resultToList . FL.fold
 
 mapReduceStreamly :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceStreamly = runIdentity . MRSL.resultToList . FL.fold
-  ((MRSL.streamlyEngine @MRSL.SerialT) MRSL.groupByHashableKey
-                                       (MR.Filter filterPF)
-                                       (MR.Assign id)
-                                       (MR.Reduce reducePF)
+  (MRSL.streamlyEngine MRSL.groupByHashableKey
+                       (MR.Filter filterPF)
+                       (MR.Assign id)
+                       (MR.Reduce reducePF)
   )
 {-# INLINE mapReduceStreamly #-}
+
+mapReduceStreamlyC
+  :: forall t m g
+   . (MonadAsync m, Foldable g, MRSL.IsStream t)
+  => g (Char, Int)
+  -> m [(Char, Double)]
+mapReduceStreamlyC = MRSL.resultToList . FL.fold
+  ((MRSL.concurrentStreamlyEngine @t) MRSL.groupByHashableKey
+                                      (MR.Filter filterPF)
+                                      (MR.Assign id)
+                                      (MR.Reduce reducePF)
+  )
+{-# INLINE mapReduceStreamlyC #-}
 
 mapReduceVector :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceVector = MRV.toList . FL.fold
@@ -133,6 +151,14 @@ benchOne dat = bgroup
     $ nf mapReduceStreamly dat
   , bench "mapReduce (Data.Vector Engine, strict hash map)"
     $ nf mapReduceVector dat
+  ]
+
+benchConcurrent dat = bgroup
+  "Task 1, on (Char, Int). Concurrent Engines"
+  [ bench "streamly, parallely" $ nfIO $ (mapReduceStreamlyC @MRSL.ParallelT)
+    dat
+  , bench "streamly, aheadly" $ nfIO $ (mapReduceStreamlyC @MRSL.AheadT) dat
+  , bench "streamly, asyncly" $ nfIO $ (mapReduceStreamlyC @MRSL.AsyncT) dat
   ]
 
 -- a more complex row type
@@ -190,11 +216,10 @@ mapReduce2Streaming = runIdentity . MRS.resultToList . FL.fold
 
 mapReduce2Streamly :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
 mapReduce2Streamly = runIdentity . MRSL.resultToList . FL.fold
-  ((MRSL.streamlyEngine @MRSL.SerialT)
-    MRSL.groupByHashableKey
-    (MR.Unpack unpackMF)
-    (MR.Assign assignMF)
-    (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
+  (MRSL.streamlyEngine MRSL.groupByHashableKey
+                       (MR.Unpack unpackMF)
+                       (MR.Assign assignMF)
+                       (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
   )
 
 mapReduce2Vector :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
@@ -232,4 +257,4 @@ main :: IO ()
 main = do
   dat <- createPairData 100000
   let dat2 = createMapRows 100000
-  defaultMain [benchOne dat, benchTwo dat2]
+  defaultMain [benchOne dat, benchConcurrent dat, benchTwo dat2]
