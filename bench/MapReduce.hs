@@ -21,8 +21,8 @@ import           Control.MapReduce.Engines.Streamly
                                                as MRSL
 import           Control.MapReduce.Engines.Vector
                                                as MRV
---import           Control.MapReduce.Engines.Parallel
---                                               as MRP
+import           Control.MapReduce.Engines.ParallelList
+                                               as MRP
 import           Data.Functor.Identity          ( runIdentity )
 import           Data.Text                     as T
 import           Data.List                     as L
@@ -38,6 +38,7 @@ import           Data.Sequence                 as Seq
 import           Data.Maybe                     ( catMaybes )
 import           System.Random                  ( newStdGen
                                                 , randomRs
+                                                , randomRIO
                                                 )
 
 
@@ -47,6 +48,13 @@ createPairData n = do
   let randLabels = L.take n $ randomRs ('A', 'Z') g
       randInts   = L.take n $ randomRs (1, 100) g
   return $ L.zip randLabels randInts
+
+benchPure :: (NFData b) => String -> (Int -> a) -> (a -> b) -> Benchmark
+benchPure name src f =
+  bench name $ nfIO $ randomRIO (1, 1) >>= return . f . src
+
+benchIO :: (NFData b) => String -> (Int -> a) -> (a -> IO b) -> Benchmark
+benchIO name src f = bench name $ nfIO $ randomRIO (1, 1) >>= f . src
 
 -- For example, keep only even numbers, then compute the average of the Int for each label.
 filterPF = even . snd
@@ -86,6 +94,16 @@ mapReduceList = FL.fold
   )
 {-# INLINE mapReduceList #-}
 
+mapReduceListP :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceListP = FL.fold
+  (MRP.parallelListEngine 6
+                          MRL.groupByHashableKey
+                          (MR.Filter filterPF)
+                          (MR.Assign id)
+                          (MR.Reduce reducePF)
+  )
+{-# INLINE mapReduceListP #-}
+
 
 mapReduceStreaming :: Foldable g => g (Char, Int) -> [(Char, Double)]
 mapReduceStreaming = runIdentity . MRS.resultToList . FL.fold
@@ -106,15 +124,15 @@ mapReduceStreamly = runIdentity . MRSL.resultToList . FL.fold
 {-# INLINE mapReduceStreamly #-}
 
 mapReduceStreamlyC
-  :: forall t m g
-   . (MonadAsync m, Foldable g, MRSL.IsStream t)
+  :: forall tIn tOut m g
+   . (MonadAsync m, Foldable g, MRSL.IsStream tIn, MRSL.IsStream tOut)
   => g (Char, Int)
   -> m [(Char, Double)]
 mapReduceStreamlyC = MRSL.resultToList . FL.fold
-  ((MRSL.concurrentStreamlyEngine @t) MRSL.groupByHashableKey
-                                      (MR.Filter filterPF)
-                                      (MR.Assign id)
-                                      (MR.Reduce reducePF)
+  ((MRSL.concurrentStreamlyEngine @tIn @tOut) MRSL.groupByHashableKey
+                                              (MR.Filter filterPF)
+                                              (MR.Assign id)
+                                              (MR.Reduce reducePF)
   )
 {-# INLINE mapReduceStreamlyC #-}
 
@@ -140,34 +158,49 @@ parMapReduce = FL.fold
 -}
 
 
+
 benchOne dat = bgroup
   "Task 1, on (Char, Int) "
-  [ bench "direct" $ nf direct dat
-  , bench "directFoldl" $ nf directFoldl dat
-  , bench "mapReduce ([] Engine, strict hash map)" $ nf mapReduceList dat
-  , bench "mapReduce (Streaming.Stream Engine, strict hash map)"
-    $ nf mapReduceStreaming dat
-  , bench "mapReduce (Streamly.SerialT Engine, strict hash map)"
-    $ nf mapReduceStreamly dat
-  , bench "mapReduce (Data.Vector Engine, strict hash map)"
-    $ nf mapReduceVector dat
+  [ benchPure "direct"      (const dat) direct
+  , benchPure "directFoldl" (const dat) directFoldl
+  , benchPure "mapReduce ([] Engine, strict hash map)" (const dat) mapReduceList
+  , benchPure "mapReduce (Streaming.Stream Engine, strict hash map)"
+              (const dat)
+              mapReduceStreaming
+  , benchPure "mapReduce (Streamly.SerialT Engine, strict hash map)"
+              (const dat)
+              mapReduceStreamly
+  , benchPure "mapReduce (Data.Vector Engine, strict hash map)"
+              (const dat)
+              mapReduceVector
   ]
 
 benchConcurrent dat = bgroup
   "Task 1, on (Char, Int). Concurrent Engines"
-  [ bench "streamly, parallely" $ nfIO $ (mapReduceStreamlyC @MRSL.ParallelT)
-    dat
-  , bench "streamly, aheadly" $ nfIO $ (mapReduceStreamlyC @MRSL.AheadT) dat
-  , bench "streamly, asyncly" $ nfIO $ (mapReduceStreamlyC @MRSL.AsyncT) dat
+  [ benchPure "list, parallel (6 threads)" (const dat) mapReduceListP
+  , benchIO "streamly, parallely"
+            (const dat)
+            (mapReduceStreamlyC @MRSL.SerialT @MRSL.ParallelT)
+  , benchIO "streamly, aheadly"
+            (const dat)
+            (mapReduceStreamlyC @MRSL.SerialT @MRSL.AheadT)
+  , benchIO "streamly, asyncly"
+            (const dat)
+            (mapReduceStreamlyC @MRSL.SerialT @MRSL.AsyncT)
   ]
 
 -- a more complex row type
-createMapRows :: Int -> Seq.Seq (M.Map T.Text Int)
-createMapRows n =
-  let makeRow k = if even k
-        then M.fromList [("A", k), ("B", k `mod` 47), ("C", k `mod` 13)]
-        else M.fromList [("A", k), ("B", k `mod` 47)]
-  in  Seq.unfoldr (\m -> if m > n then Nothing else Just (makeRow m, m + 1)) 0
+createMapRows :: Int -> IO (Seq.Seq (M.Map T.Text Int))
+createMapRows n = do
+  g <- newStdGen
+  let randInts = L.take (n + 1) $ randomRs (1, 100) g
+      makeRow k =
+        let l = randInts !! k
+        in  if even l
+              then M.fromList [("A", l), ("B", l `mod` 47), ("C", l `mod` 13)]
+              else M.fromList [("A", l), ("B", l `mod` 47)]
+  return
+    $ Seq.unfoldr (\m -> if m > n then Nothing else Just (makeRow m, m + 1)) 0
 
 -- unpack: if A and B and C are present, unpack to Just (A,B,C), otherwise Nothing
 unpackMF :: M.Map T.Text Int -> Maybe (Int, Int, Int)
@@ -242,19 +275,25 @@ basicListP = FL.fold
 
 benchTwo dat = bgroup
   "Task 2, on Map Text Int "
-  [ bench "direct" $ nf directM dat
-  , bench "map-reduce-fold ([] Engine, strict hash map, serial)"
-    $ nf mapReduce2List dat
-  , bench "map-reduce-fold (Streaming.Stream Engine, strict hash map, serial)"
-    $ nf mapReduce2Streaming dat
-  , bench "map-reduce-fold (Streamly.SerialT Engine, strict hash map, serial)"
-    $ nf mapReduce2Streamly dat
-  , bench "map-reduce-fold (Data.Vector Engine, strict hash map, serial)"
-    $ nf mapReduce2Vector dat
+  [ benchPure "direct" (const dat) directM
+  , benchPure "map-reduce-fold ([] Engine, strict hash map, serial)"
+              (const dat)
+              mapReduce2List
+  , benchPure
+    "map-reduce-fold (Streaming.Stream Engine, strict hash map, serial)"
+    (const dat)
+    mapReduce2Streaming
+  , benchPure
+    "map-reduce-fold (Streamly.SerialT Engine, strict hash map, serial)"
+    (const dat)
+    mapReduce2Streamly
+  , benchPure "map-reduce-fold (Data.Vector Engine, strict hash map, serial)"
+              (const dat)
+              mapReduce2Vector
   ]
 
 main :: IO ()
 main = do
-  dat <- createPairData 100000
-  let dat2 = createMapRows 100000
+  dat  <- createPairData 100000
+  dat2 <- createMapRows 100000
   defaultMain [benchOne dat, benchConcurrent dat, benchTwo dat2]

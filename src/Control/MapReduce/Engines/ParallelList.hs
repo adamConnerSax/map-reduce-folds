@@ -15,7 +15,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
-Module      : Control.MapReduce.Engines.Parallel
+Module      : Control.MapReduce.Engines.ParallelList
 Description : Gatherer code for map-reduce-folds
 Copyright   : (c) Adam Conner-Sax 2019
 License     : BSD-3-Clause
@@ -32,7 +32,7 @@ Some basic attempts at parallel map-reduce folds with lists as intermediate type
 So far these are sometimes faster and sometimes slower than their serial counterparts.  So there is much room
 for improvement, I think.
 -}
-module Control.MapReduce.Engines.Parallel
+module Control.MapReduce.Engines.ParallelList
   (
     -- * lazy hash map grouping parallel list map-reduce 
     parallelMapReduceFold
@@ -74,9 +74,9 @@ parallelMapReduceFold
   :: (NFData k, NFData c, NFData d, Hashable k, Eq k)
   => Int
   -> MRE.MapReduceFold y k c [] x d
-parallelMapReduceFold numThreads = parallelListEngine
-  numThreads
-  (HMS.toList . HMS.fromListWith (<>) . fmap (second (pure @[])))
+parallelMapReduceFold numThreads =
+  parallelListEngine numThreads MRL.groupByHashableKey
+--  (HMS.toList . HMS.fromListWith (<>) . fmap (second (pure @[])))
 
 -- | Parallel map-reduce-fold list engine.  Uses the given parameters to use multiple sparks when mapping and reducing.
 -- Chunks the input to numThreads chunks and sparks each chunk for mapping, merges the results, groups, then uses the same chunking and merging to do the reductions.

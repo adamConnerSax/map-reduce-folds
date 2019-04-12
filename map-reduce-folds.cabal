@@ -38,11 +38,11 @@ library
                  , Control.MapReduce.Simple
                  , Control.MapReduce.Engines
                  , Control.MapReduce.Engines.GroupBy
-                 , Control.MapReduce.Engines.List
                  , Control.MapReduce.Engines.Streaming
                  , Control.MapReduce.Engines.Streamly
                  , Control.MapReduce.Engines.Vector
-                 , Control.MapReduce.Engines.Parallel
+                 , Control.MapReduce.Engines.List
+                 , Control.MapReduce.Engines.ParallelList
 
   build-depends: dlist                >= 0.8.0 && < 0.9,
                  hashable             >= 1.2.7 && < 1.3,
@@ -64,7 +64,8 @@ benchmark bench-map-reduce
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench
   other-modules:       
-  ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings -threaded "-with-rtsopts=-N" -funbox-strict-fields -fno-warn-unused-binds -fno-warn-unused-matches -fforce-recomp
+  ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings -fforce-recomp
+--                       -threaded "-with-rtsopts=-N"
   main-is:             MapReduce.hs
   build-depends:       map-reduce-folds >= 0.3.0.0, 
                        criterion ,

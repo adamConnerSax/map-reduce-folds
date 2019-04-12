@@ -145,17 +145,17 @@ unpackConcurrently (MRC.Unpack f) = S.concatMap (S.fromFoldable . f)
 
 -- | possibly concurrent map-reduce-fold engine builder returning an @(Istream t, MonadAsync m) => t m d@ result
 concurrentStreamlyEngine
-  :: forall t m y k c x d
-   . (S.IsStream t, S.MonadAsync m)
+  :: forall tIn tOut m y k c x d
+   . (S.IsStream tIn, S.IsStream tOut, S.MonadAsync m)
   => (forall z . S.SerialT m (k, z) -> S.SerialT m (k, [z]))
-  -> MRE.MapReduceFold y k c (t m) x d
+  -> MRE.MapReduceFold y k c (tOut m) x d
 concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
   (\s a -> (return a) `S.consM` s)
   S.nil
   ( S.mapM (\(k, lc) -> return $ MRE.reduceFunction r k lc)
-  . S.adapt @SerialT @t -- make it concurrent for reducing
+  . S.adapt @SerialT @tOut -- make it concurrent for reducing
   . groupByKey
-  . S.adapt @t @SerialT-- make it serial for grouping
+  . S.adapt @tIn @SerialT-- make it serial for grouping
   . S.mapM (return . a)
   . (S.|$) (unpackConcurrently u)
   )
