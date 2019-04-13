@@ -73,3 +73,11 @@ benchmark bench-map-reduce
                        random
   default-language:    Haskell2010
 
+
+executable listStats
+    import: deps
+    main-is: ListStats.hs
+    hs-source-dirs: examples
+    ghc-options: -O0 -Wall
+    build-depends: map-reduce-folds -any
+                                 
