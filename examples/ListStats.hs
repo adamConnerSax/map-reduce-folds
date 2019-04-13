@@ -39,8 +39,8 @@ sumAndMeanWithTwiceF =
 
 
 {-
-We combine all the folds we want to do into one fold.  So we loop over the input list only once.
-We group it for each fold but the last two, sumAndMeanEach and sumAndMeanWithTwice shows how we might avoid that as well.
+We combine all the folds we want to do into one fold.  So we loop over the input list only once here.
+We group it for each fold.  But the last two, sumAndMeanEach and sumAndMeanWithTwice shows how we might avoid that as well.
 -}
 
 main :: IO ()
@@ -56,7 +56,7 @@ main = do
         (ints 100)
   putStrLn $ "Sums: " ++ show s
   putStrLn $ "Means: " ++ show m
-  putStrLn $ "Sums & Means 1: " ++ show sm
+  putStrLn $ "Sums & Means: " ++ show sm
   putStrLn $ "Sum & Mean of each: " ++ show sme
   putStrLn $ "Sum & Mean of all plus doubles: " ++ show smd
 
@@ -67,7 +67,7 @@ main = do
 
 Sums: [(False,1734.0),(True,816.0)]
 Means: [(False,51.0),(True,51.0)]
-Sums & Means 1: ([(False,1734.0),(True,816.0)],[(False,51.0),(True,51.0)])
+Sums & Means: ([(False,1734.0),(True,816.0)],[(False,51.0),(True,51.0)])
 Sum & Mean of each: [((False,1734.0),(False,51.0)),((True,816.0),(True,51.0))]
 Sum & Mean of all plus doubles: [((False,10101.0),(False,75.38059701492539)),((True,5049.0),(True,76.5))]
 
