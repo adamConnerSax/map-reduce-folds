@@ -11,7 +11,6 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
-{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
@@ -22,9 +21,14 @@ License     : BSD-3-Clause
 Maintainer  : adam_conner_sax@yahoo.com
 Stability   : experimental
 
-map-reduce engine (fold builder) using Streamly streams as its intermediate and return type
-NB: These are polymorphic in the return type.  Thought the streams do have to be serial when groupBy is called
+map-reduce engine (fold builder) using @Streamly@ streams as its intermediate and return type.
+
+Notes:
+1. These are polymorphic in the return stream type.  Thought the streams do have to be @serial@ when @groupBy@ is called
 So you have to specify the stream type in the call or it has to be inferrable from the use of the result.
+
+2. There is a concurrent engine here, one that uses Streamly's concurrency features to map over the stream.  I've not
+been able to verify that this is faster on an appropriate task with appropriate runtime settings.
 -}
 module Control.MapReduce.Engines.Streamly
   (
@@ -33,9 +37,11 @@ module Control.MapReduce.Engines.Streamly
   , streamlyEngineM
   , concurrentStreamlyEngine
   , resultToList
+
   -- * groupBy functions
   , groupByHashableKey
   , groupByOrderedKey
+
   -- * re-exports
   , SerialT
   , WSerialT
@@ -53,14 +59,9 @@ import qualified Control.MapReduce.Engines     as MRE
 
 import           Control.Arrow                  ( second )
 import qualified Control.Foldl                 as FL
-import           Control.Monad                  ( join )
-import           Data.Functor.Identity          ( Identity
-                                                , runIdentity
-                                                )
+import           Data.Functor.Identity          ( Identity )
 import           Data.Hashable                  ( Hashable )
---import qualified Data.HashMap.Lazy             as HML
 import qualified Data.HashMap.Strict           as HMS
---import qualified Data.Map                      as ML
 import qualified Data.Map.Strict               as MS
 import qualified Streamly.Prelude              as S
 import qualified Streamly                      as S
@@ -74,23 +75,23 @@ import           Streamly                       ( SerialT
                                                 , IsStream
                                                 )
 
--- | case analysis of Unpack for streaming based mapReduce
+-- | case analysis of @Unpack@ for streamly based map/reduce
 unpackStream :: S.IsStream t => MRC.Unpack x y -> t Identity x -> t Identity y
 unpackStream (MRC.Filter t) = S.filter t
 unpackStream (MRC.Unpack f) = S.concatMap (S.fromFoldable . f)
 {-# INLINABLE unpackStream #-}
 
--- | case analysis of Unpack for list based mapReduce
+-- | case analysis of @Unpack@ for streamly map/reduce
 unpackStreamM :: (S.IsStream t, Monad m) => MRC.UnpackM m x y -> t m x -> t m y
-unpackStreamM (MRC.FilterM t) = S.filter t -- this is a non-effectful filter
+unpackStreamM (MRC.FilterM t) = S.filterM t
 unpackStreamM (MRC.UnpackM f) = S.concatMapM (fmap S.fromFoldable . f)
 {-# INLINABLE unpackStreamM #-}
 
 
 -- This all uses [c] internally and I'd rather it used a Stream there as well.  But when I try to do that, it's slow.
 -- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
--- | Group streamly stream of (k,c) by hashable key.
--- NB: this function uses the fact that (SerialT m) is a monad
+-- | Group streamly stream of @(k,c)@ by @hashable@ key.
+-- NB: this function uses the fact that @SerialT m@ is a monad
 groupByHashableKey
   :: forall m k c
    . (Monad m, Hashable k, Eq k)
@@ -103,8 +104,8 @@ groupByHashableKey s = do
 {-# INLINABLE groupByHashableKey #-}
 
 -- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
--- | Group streamly stream of (k,c) by ordered key.
--- NB: this function uses the fact that (SerialT m) is a monad
+-- | Group streamly stream of @(k,c)@ by ordered key.
+-- NB: this function uses the fact that @SerialT m@ is a monad
 groupByOrderedKey
   :: forall m k c
    . (Monad m, Ord k)
@@ -150,7 +151,7 @@ concurrentStreamlyEngine
   => (forall z . S.SerialT m (k, z) -> S.SerialT m (k, [z]))
   -> MRE.MapReduceFold y k c (tOut m) x d
 concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
-  (\s a -> (return a) `S.consM` s)
+  (\s a' -> (return a') `S.consM` s)
   S.nil
   ( S.mapM (\(k, lc) -> return $ MRE.reduceFunction r k lc)
   . S.adapt @SerialT @tOut -- make it concurrent for reducing
@@ -163,7 +164,7 @@ concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
 
 
 -- | effectful map-reduce-fold engine builder returning a (Istream t => t m d) result
--- The "MonadAsync" constraint here more or less requires us ot run in IO or something IO like.
+-- The "MonadAsync" constraint here more or less requires us to run in IO, or something IO like.
 streamlyEngineM
   :: forall t m y k c x d
    . (S.IsStream t, Monad m, S.MonadAsync m)

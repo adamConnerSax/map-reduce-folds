@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE PolyKinds             #-}
+
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE ConstraintKinds       #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -29,19 +30,14 @@ Some basic attempts at parallel map-reduce folds with lists as intermediate type
 (3) We can fold our intermediate monoid (in the gatherer) in parallel
 (4) We can fold our result monoid in parallel
 
-So far these are sometimes faster and sometimes slower than their serial counterparts.  So there is much room
-for improvement, I think.
+NB: This does not seem to be faster--and is often slower!--than the serial engine.  I leave it here as a starting point for improvement.
 -}
 module Control.MapReduce.Engines.ParallelList
   (
-    -- * lazy hash map grouping parallel list map-reduce 
-    parallelMapReduceFold
     -- * A basic parallel mapReduceFold builder
-  , parallelListEngine
-    -- * parallel monoid folds
-  , parFoldMonoid
-  , parFoldMonoidDC
-  -- * re-exports
+    parallelListEngine
+
+    -- * re-exports
   , NFData
   )
 where
@@ -51,32 +47,14 @@ import qualified Control.MapReduce.Engines     as MRE
 import qualified Control.MapReduce.Engines.List
                                                as MRL
 
-import           Control.Arrow                  ( second )
 import qualified Control.Foldl                 as FL
-import qualified Data.Foldable                 as F
 import qualified Data.List                     as L
 import qualified Data.List.Split               as L
-import qualified Data.Map                      as ML
-import qualified Data.Map.Strict               as MS
-import           Data.Hashable                  ( Hashable )
-import qualified Data.HashMap.Strict           as HMS
-import qualified Data.HashMap.Lazy             as HML
-import           Data.Monoid                    ( Monoid
-                                                , mconcat
-                                                )
 
 import qualified Control.Parallel.Strategies   as PS
 import           Control.Parallel.Strategies    ( NFData ) -- for re-export
 --
 
-
-parallelMapReduceFold
-  :: (NFData k, NFData c, NFData d, Hashable k, Eq k)
-  => Int
-  -> MRE.MapReduceFold y k c [] x d
-parallelMapReduceFold numThreads =
-  parallelListEngine numThreads MRL.groupByHashableKey
---  (HMS.toList . HMS.fromListWith (<>) . fmap (second (pure @[])))
 
 -- | Parallel map-reduce-fold list engine.  Uses the given parameters to use multiple sparks when mapping and reducing.
 -- Chunks the input to numThreads chunks and sparks each chunk for mapping, merges the results, groups, then uses the same chunking and merging to do the reductions.
@@ -105,10 +83,17 @@ parMapEach :: PS.NFData b => (a -> b) -> [a] -> [b]
 parMapEach = PS.parMap (PS.rparWith PS.rdeepseq)
 {-# INLINABLE parMapEach #-}
 
-parMapChunk :: PS.NFData b => Int -> (a -> b) -> [a] -> [b]
-parMapChunk chunkSize f =
-  PS.withStrategy (PS.parListChunk chunkSize (PS.rparWith PS.rdeepseq)) . fmap f
-{-# INLINABLE parMapChunk #-}
+{-
+
+-- | a parallel map/reduce using the parallelListEngine and a hashable key
+parallelMapReduceFold
+  :: (NFData k, NFData c, NFData d, Hashable k, Eq k)
+  => Int
+  -> MRE.MapReduceFold y k c [] x d
+parallelMapReduceFold numThreads =
+  parallelListEngine numThreads MRL.groupByHashableKey
+--  (HMS.toList . HMS.fromListWith (<>) . fmap (second (pure @[])))
+
 
 -- | like `foldMap id` but does each chunk of chunkSize in || until list is shorter than chunkSize
 parFoldMonoid
@@ -128,6 +113,14 @@ parFoldMonoid' threadsToUse fm =
   let asList  = F.toList fm
       chunked = L.divvy threadsToUse threadsToUse asList
   in  mconcat $ parMapEach mconcat chunked
+
+
+{-
+parMapChunk :: PS.NFData b => Int -> (a -> b) -> [a] -> [b]
+parMapChunk chunkSize f =
+  PS.withStrategy (PS.parListChunk chunkSize (PS.rparWith PS.rdeepseq)) . fmap f
+{-# INLINABLE parMapChunk #-}
+-}
 
 
 parFoldMonoidDC :: (Monoid b, PS.NFData b, Foldable h) => Int -> h b -> b
@@ -170,3 +163,4 @@ divConq f arg threshold conquer divide = go arg
 
 
 
+-}

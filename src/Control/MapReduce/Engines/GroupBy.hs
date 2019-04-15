@@ -11,14 +11,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
-{-# LANGUAGE BangPatterns          #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE DeriveFunctor         #-}
-{-# LANGUAGE DeriveFoldable        #-}
-{-# LANGUAGE DeriveTraversable     #-}
-{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE OverloadedLists       #-}
-{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Engines.GroupBy
@@ -27,6 +20,8 @@ Copyright   : (c) Adam Conner-Sax 2019
 License     : BSD-3-Clause
 Maintainer  : adam_conner_sax@yahoo.com
 Stability   : experimental
+
+Some standard groupBy functions. For use by engines.
 -}
 module Control.MapReduce.Engines.GroupBy
   ( -- * General groupBy in the form we want
@@ -43,10 +38,6 @@ import qualified Data.HashMap.Strict           as HMS
 import           Data.Hashable                  ( Hashable )
 import           Control.Arrow                  ( second )
 import qualified Control.Foldl                 as FL
-
-
-
-
 
 {-|
 General groupBy capturing the idea that we fold to some grouping structure and then fold that structure back to our
@@ -65,20 +56,6 @@ groupBy foldToMap mapToList foldOut x =
   FL.fold foldOut . mapToList . FL.fold foldToMap $ x
 {-# INLINABLE groupBy #-}
 
-{-
-groupByM
-  :: forall t k c v l g m
-   . (Traversable g, Monad m)
-  => FL.FoldM m (k, v) t -- ^ fold to tree
-  -> (t -> [(k, l)]) -- ^ tree to List
-  -> (forall a . FL.FoldM m a (g a)) -- ^ fold to g
-  -> g (k, v)
-  -> g (k, l)
-groupByA foldToMap mapToList foldOut x =
-  FL.fold foldOut . mapToList . FL.fold foldToMap $ x
-{-# INLINABLE groupBy #-}
--}
-
 groupByOrderedKey
   :: forall g k v l
    . (Ord k, Semigroup l, Foldable g, Functor g)
@@ -89,7 +66,7 @@ groupByOrderedKey
 groupByOrderedKey promote = groupBy foldToStrictMap MS.toList
  where
   foldToStrictMap = FL.premap (second promote)
-    $ FL.Fold (\t (k, l) -> MS.insertWith (\x y -> x <> y) k l t) MS.empty id
+    $ FL.Fold (\t (k, l) -> MS.insertWith (<>) k l t) MS.empty id
 {-# INLINABLE groupByOrderedKey #-}
 
 groupByHashableKey

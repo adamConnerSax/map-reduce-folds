@@ -2,7 +2,6 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE PolyKinds             #-}
@@ -22,6 +21,8 @@ Copyright   : (c) Adam Conner-Sax 2019
 License     : BSD-3-Clause
 Maintainer  : adam_conner_sax@yahoo.com
 Stability   : experimental
+
+Helper functions and default Engines and grouping functions for assembling map/reduce folds.
 -}
 module Control.MapReduce.Simple
   (
@@ -29,27 +30,32 @@ module Control.MapReduce.Simple
     noUnpack
   , simpleUnpack
   , filterUnpack
+
   -- * Assigners
   , assign
+
   -- * Reducers
   , processAndRelabel
   , processAndRelabelM
   , foldAndRelabel
   , foldAndRelabelM
+
   -- * reduce transformers 
   , reduceMapWithKey
   , reduceMMapWithKey
+
   -- * simplified map-reduce folds
-  -- ** serial
   , mapReduceFold
   , mapReduceFoldM
   , hashableMapReduceFold
   , hashableMapReduceFoldM
   , unpackOnlyFold
   , unpackOnlyFoldM
+
   -- * helper functions to simplify results
   , concatFold
   , concatFoldM
+
   -- * re-exports
   , module Control.MapReduce.Core
   , Hashable
@@ -87,7 +93,7 @@ simpleUnpack f = MR.Unpack $ Identity . f
 
 -- | Filter while unpacking, using the given function
 filterUnpack :: (x -> Bool) -> MR.Unpack x x
-filterUnpack t = MR.Filter t
+filterUnpack = MR.Filter
 {-# INLINABLE filterUnpack #-}
 
 -- | Assign via two functions, one that provides the key and one that provides the data to be grouped by that key
@@ -211,59 +217,3 @@ unpackOnlyFold u = fmap (MRL.unpackList u) FL.list
 unpackOnlyFoldM :: Monad m => MR.UnpackM m x y -> FL.FoldM m x [y]
 unpackOnlyFoldM u = MR.postMapM (MRL.unpackListM u) (FL.generalize FL.list)
 {-# INLINABLE unpackOnlyFoldM #-}
-{-
--- | basic parallel mapReduce, assumes Hashable key.  Takes two arguments to specify how things should be grouped.
-parBasicListHashableFold
-  :: forall k g y c x e
-   . ( Monoid e
-     , MRP.NFData e -- for the parallel reduce     
-     , MRP.NFData k -- for the parallel assign
-     , MRP.NFData c -- for the parallel assign
-     , Traversable g
-     , Hashable k
-     , Eq k
-     )
-  => Int -- ^ items per spark for folding and mapping
-  -> Int -- ^ number of sparks for reducing
-  -> MR.Unpack g x y
-  -> MR.Assign k y c
-  -> MR.Reduce k [] c e
-  -> FL.Fold x e
-parBasicListHashableFold oneSparkMax numThreads u a r =
-  let g = MRP.parReduceGathererHashableL (pure @[])
-  in  MRP.parallelMapReduceFold oneSparkMax
-                                numThreads
-                                MR.uagMapAllGatherEachFold
-                                g
-                                u
-                                a
-                                r
-{-# INLINABLE parBasicListHashableFold #-}
-
--- | basic parallel mapReduce, assumes Ord key.  Takes two arguments to specify how things should be grouped.
-parBasicListOrdFold
-  :: forall k g y c x e
-   . ( Monoid e
-     , MRP.NFData e -- for the parallel reduce     
-     , MRP.NFData k -- for the parallel assign
-     , MRP.NFData c -- for the parallel assign
-     , Traversable g
-     , Ord k
-     )
-  => Int -- ^ items per spark for folding and mapping
-  -> Int -- ^ number of sparks for reducing
-  -> MR.Unpack g x y
-  -> MR.Assign k y c
-  -> MR.Reduce k [] c e
-  -> FL.Fold x e
-parBasicListOrdFold oneSparkMax numThreads u a r =
-  let g = MRP.parReduceGathererOrd (pure @[])
-  in  MRP.parallelMapReduceFold oneSparkMax
-                                numThreads
-                                MR.uagMapAllGatherEachFold
-                                g
-                                u
-                                a
-                                r
-{-# INLINABLE parBasicListOrdFold #-}
--}

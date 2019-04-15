@@ -11,7 +11,6 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
-{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
@@ -22,12 +21,15 @@ License     : BSD-3-Clause
 Maintainer  : adam_conner_sax@yahoo.com
 Stability   : experimental
 
-map-reduce engine (fold builder) using Streams as its intermediate type.
+map-reduce engine (fold builder) using @Streaming.Streams@ as its intermediate type.  Because @Streaming.Stream@ does not end with the
+type of data data in the @Stream@, we wrap this type in @StreamResult@ for the purposes of the output type of the fold.
 -}
 module Control.MapReduce.Engines.Streaming
   (
+    -- * Helper Types
+    StreamResult(..)
     -- * Engines
-    streamingEngine
+  , streamingEngine
   , streamingEngineM
   , resultToList
   -- * groupBy functions
@@ -42,9 +44,7 @@ import qualified Control.MapReduce.Engines     as MRE
 import qualified Control.Foldl                 as FL
 import           Data.Functor.Identity          ( Identity )
 import           Data.Hashable                  ( Hashable )
---import qualified Data.HashMap.Lazy             as HML
 import qualified Data.HashMap.Strict           as HMS
---import qualified Data.Map                      as ML
 import qualified Data.Map.Strict               as MS
 import qualified Streaming.Prelude             as S
 import qualified Streaming                     as S
@@ -61,10 +61,10 @@ unpackStream (MRC.Filter t) = S.filter t
 unpackStream (MRC.Unpack f) = S.concat . S.map f
 {-# INLINABLE unpackStream #-}
 
--- | case analysis of Unpack for list based mapReduce
+-- | case analysis of Unpack for streaming based mapReduce
 unpackStreamM
   :: Monad m => MRC.UnpackM m x y -> Stream (Of x) m r -> Stream (Of y) m r
-unpackStreamM (MRC.FilterM t) = S.filter t
+unpackStreamM (MRC.FilterM t) = S.filterM t
 unpackStreamM (MRC.UnpackM f) = S.concat . S.mapM f
 {-# INLINABLE unpackStreamM #-}
 

@@ -11,7 +11,6 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
-{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
@@ -29,9 +28,11 @@ module Control.MapReduce.Engines.List
   -- * Engines
     listEngine
   , listEngineM
+
   -- * groupBy functions
   , groupByHashableKey
   , groupByOrderedKey
+
   -- * Helpers
   , unpackList
   , unpackListM
@@ -47,7 +48,7 @@ import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
 import qualified Data.HashMap.Strict           as HMS
 import qualified Data.Map.Strict               as MS
-
+import           Control.Monad                  ( filterM )
 import           Control.Arrow                  ( second )
 
 
@@ -60,7 +61,7 @@ unpackList (MRC.Unpack f) = L.concatMap (F.toList . f)
 
 -- | case analysis of Unpack for list based mapReduce
 unpackListM :: MRC.UnpackM m x y -> [x] -> m [y]
-unpackListM (MRC.FilterM t) = return . L.filter t
+unpackListM (MRC.FilterM t) = filterM t
 unpackListM (MRC.UnpackM f) = fmap L.concat . traverse (fmap F.toList . f)
 {-# INLINABLE unpackListM #-}
 
@@ -87,7 +88,7 @@ listEngineM
   :: Monad m => ([(k, c)] -> [(k, [c])]) -> MRE.MapReduceFoldM m y k c [] x d
 listEngineM groupByKey u (MRC.AssignM a) rM = MRC.postMapM
   ( (traverse (uncurry $ MRE.reduceFunctionM rM) =<<)
-  . (fmap groupByKey)
+  . fmap groupByKey
   . (traverse a =<<)
   . unpackListM u
   )

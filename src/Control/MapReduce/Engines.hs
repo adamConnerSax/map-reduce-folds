@@ -11,8 +11,6 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
-{-# LANGUAGE BangPatterns          #-}
-{-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Engines
@@ -22,12 +20,14 @@ License     : BSD-3-Clause
 Maintainer  : adam_conner_sax@yahoo.com
 Stability   : experimental
 
+Types and functions used by all the engines.
 -}
 module Control.MapReduce.Engines
   (
     -- * Types
     MapReduceFold
   , MapReduceFoldM
+
   -- * helpers
   , reduceFunction
   , reduceFunctionM

@@ -1,7 +1,7 @@
 cabal-version:       2.2.0
 
 name:                map-reduce-folds
-version:             0.3.0.0
+version:             0.1.0.0
 synopsis:            foldl wrappers for map-reduce
 description:         wrappers around foldl folds that make it simpler to do map-reduce (or split-apply-combine) style folds.  Includes some general types
                      as well as some simple building blocks and tools for executing the folds in parallel.
@@ -67,7 +67,7 @@ benchmark bench-map-reduce
   ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings -fforce-recomp
 --                       -threaded "-with-rtsopts=-N"
   main-is:             MapReduce.hs
-  build-depends:       map-reduce-folds >= 0.3.0.0, 
+  build-depends:       map-reduce-folds >= 0.1.0.0, 
                        criterion ,
                        deepseq ,
                        random
