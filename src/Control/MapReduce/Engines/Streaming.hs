@@ -34,7 +34,9 @@ module Control.MapReduce.Engines.Streaming
 
   -- * result extractors
   , resultToList
-  , concatStreamResult
+  , concatStream
+  , concatStreamFold
+  , concatStreamFoldM
 
   -- * groupBy functions
   , groupByHashableKey
@@ -73,7 +75,6 @@ unpackStreamM (MRC.FilterM t) = S.filterM t
 unpackStreamM (MRC.UnpackM f) = S.concat . S.mapM f
 {-# INLINABLE unpackStreamM #-}
 
--- This all uses [c] internally, which perhaps doesn't matter sine it gets immediately folded over anyway?
 -- | group the mapped and assigned values by key using a @Data.HashMap.Strict@
 groupByHashableKey
   :: forall m k c r
@@ -105,13 +106,21 @@ newtype StreamResult m d = StreamResult { unRes :: Stream (Of d) m () }
 resultToList :: Monad m => StreamResult m d -> m [d]
 resultToList = S.toList_ . unRes
 
-concatStream :: (Monad m, Monoid a) => Stream (Of a) m () -> m a
-concatStream = S.iterT g . fmap (const mempty)
+concatStreaming :: (Monad m, Monoid a) => Stream (Of a) m () -> m a
+concatStreaming = S.iterT g . fmap (const mempty)
   where g (a S.:> ma) = fmap (a <>) ma
 
 -- | @mappend@ all elements of a @StreamResult@ of monoids
-concatStreamResult :: (Monad m, Monoid a) => StreamResult m a -> m a
-concatStreamResult = concatStream . unRes
+concatStream :: (Monad m, Monoid a) => StreamResult m a -> m a
+concatStream = concatStreaming . unRes
+
+concatStreamFold
+  :: Monoid b => FL.Fold a (StreamResult Identity b) -> FL.Fold a b
+concatStreamFold = fmap (S.runIdentity . concatStream)
+
+concatStreamFoldM
+  :: (Monad m, Monoid b) => FL.FoldM m a (StreamResult m b) -> FL.FoldM m a b
+concatStreamFoldM = MRC.postMapM concatStream
 
 -- | map-reduce-fold engine builder returning a @StreamResult@
 streamingEngine

@@ -44,7 +44,9 @@ library
                  , Control.MapReduce.Engines.ParallelList
 
   build-depends: dlist                >= 0.8.0 && < 0.9,
+                 discrimination       >= 0.3   && < 0.4,
                  hashable             >= 1.2.7 && < 1.3,
+                 hashtables           >= 1.2.0.0 && < 1.3.0.0,
                  vector               >= 0.12.0 && < 0.13,
                  parallel             >= 3.2.2 && < 3.3,
                  split                >= 0.2.3 && < 0.3,

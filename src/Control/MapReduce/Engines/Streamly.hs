@@ -12,6 +12,7 @@
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE BangPatterns          #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Engines.Streams
@@ -39,11 +40,16 @@ module Control.MapReduce.Engines.Streamly
 
   -- * result extraction
   , resultToList
-  , streamConcat
+  , concatStream
+  , concatStreamFold
+  , concatStreamFoldM
+  , concatConcurrentStreamFold
 
   -- * groupBy functions
   , groupByHashableKey
   , groupByOrderedKey
+  , groupByHashableKeyST
+  , groupByDiscriminatedKey
 
   -- * re-exports
   , SerialT
@@ -62,9 +68,14 @@ import qualified Control.MapReduce.Engines     as MRE
 
 import           Control.Arrow                  ( second )
 import qualified Control.Foldl                 as FL
-import           Data.Functor.Identity          ( Identity )
+import           Control.Monad.ST              as ST
+import qualified Data.Discrimination.Grouping  as DG
+import qualified Data.Foldable                 as F
+import           Data.Functor.Identity          ( Identity(runIdentity) )
 import           Data.Hashable                  ( Hashable )
 import qualified Data.HashMap.Strict           as HMS
+import qualified Data.HashTable.Class          as HT
+import qualified Data.HashTable.ST.Cuckoo      as HTC
 import qualified Data.Map.Strict               as MS
 import qualified Data.Sequence                 as Seq
 import qualified Streamly.Prelude              as S
@@ -91,44 +102,27 @@ unpackStreamM (MRC.FilterM t) = S.filterM t
 unpackStreamM (MRC.UnpackM f) = S.concatMapM (fmap S.fromFoldable . f)
 {-# INLINABLE unpackStreamM #-}
 
-
-
--- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
--- | Group streamly stream of @(k,c)@ by @hashable@ key.
--- NB: this function uses the fact that @SerialT m@ is a monad
-groupByHashableKey
-  :: forall m k c
-   . (Monad m, Hashable k, Eq k)
-  => S.SerialT m (k, c)
-  -> S.SerialT m (k, Seq.Seq c)
-groupByHashableKey s = do
-  lkc <- S.yieldM (S.toList s)
-  let hm = HMS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
-  HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
-{-# INLINABLE groupByHashableKey #-}
-
-
--- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
--- | Group streamly stream of @(k,c)@ by ordered key.
--- NB: this function uses the fact that @SerialT m@ is a monad
-groupByOrderedKey
-  :: forall m k c
-   . (Monad m, Ord k)
-  => S.SerialT m (k, c)
-  -> S.SerialT m (k, Seq.Seq c)
-groupByOrderedKey s = do
-  lkc <- S.yieldM (S.toList s)
-  let hm = MS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
-  MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
-{-# INLINABLE groupByOrderedKey #-}
-
 -- | make a stream into an (effectful) @[]@
 resultToList :: (Monad m, S.IsStream t) => t m a -> m [a]
 resultToList = S.toList . S.adapt
 
 -- | mappend all in a monoidal stream
-streamConcat :: (Monad m, Monoid a) => S.SerialT m a -> m a
-streamConcat = S.foldl' (<>) mempty
+concatStream :: (Monad m, Monoid a) => S.SerialT m a -> m a
+concatStream = S.foldl' (<>) mempty
+
+-- | mappend everything in a pure Streamly fold
+concatStreamFold :: Monoid b => FL.Fold a (S.SerialT Identity b) -> FL.Fold a b
+concatStreamFold = fmap (runIdentity . concatStream)
+
+-- | mappend everything in an effectful Streamly fold.
+concatStreamFoldM
+  :: (Monad m, Monoid b, S.IsStream t) => FL.FoldM m a (t m b) -> FL.FoldM m a b
+concatStreamFoldM = MRC.postMapM (concatStream . S.adapt)
+
+-- | mappend everything in a concurrent Streamly fold.
+concatConcurrentStreamFold
+  :: (Monad m, Monoid b, S.IsStream t) => FL.Fold a (t m b) -> FL.FoldM m a b
+concatConcurrentStreamFold = concatStreamFoldM . FL.generalize
 
 -- | map-reduce-fold engine builder returning a @SerialT Identity d@ result
 streamlyEngine
@@ -192,4 +186,60 @@ streamlyEngineM groupByKey u (MRC.AssignM a) r =
         )
 {-# INLINABLE streamlyEngineM #-}
 
+-- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
+-- | Group streamly stream of @(k,c)@ by @hashable@ key.
+-- NB: this function uses the fact that @SerialT m@ is a monad
+groupByHashableKey
+  :: forall m k c
+   . (Monad m, Hashable k, Eq k)
+  => S.SerialT m (k, c)
+  -> S.SerialT m (k, Seq.Seq c)
+groupByHashableKey s = do
+  lkc <- S.yieldM (S.toList s)
+  let hm = HMS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
+  HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
+{-# INLINABLE groupByHashableKey #-}
 
+-- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
+-- | Group streamly stream of @(k,c)@ by ordered key.
+-- NB: this function uses the fact that @SerialT m@ is a monad
+groupByOrderedKey
+  :: forall m k c
+   . (Monad m, Ord k)
+  => S.SerialT m (k, c)
+  -> S.SerialT m (k, Seq.Seq c)
+groupByOrderedKey s = do
+  lkc <- S.yieldM (S.toList s)
+  let hm = MS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
+  MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
+{-# INLINABLE groupByOrderedKey #-}
+
+-- | Group streamly stream of @(k,c)@ by @hashable@ key. Uses mutable hashtables running in the ST monad.
+-- NB: this function uses the fact that @SerialT m@ is a monad
+groupByHashableKeyST
+  :: forall m k c
+   . (Monad m, Hashable k, Eq k)
+  => S.SerialT m (k, c)
+  -> S.SerialT m (k, Seq.Seq c)
+groupByHashableKeyST st = do
+  lkc <- S.yieldM (S.toList st)
+  ST.runST $ do
+    hm <- (MRE.fromListWithHT @HTC.HashTable) (<>)
+      $ fmap (second Seq.singleton) lkc
+    HT.foldM (\s' (k, sc) -> return $ S.cons (k, sc) s') S.nil hm
+{-# INLINABLE groupByHashableKeyST #-}
+
+
+-- | Group streamly stream of @(k,c)@ by key with instance of Grouping from <http://hackage.haskell.org/package/discrimination>.
+-- NB: this function uses the fact that @SerialT m@ is a monad
+groupByDiscriminatedKey
+  :: forall m k c
+   . (Monad m, DG.Grouping k)
+  => S.SerialT m (k, c)
+  -> S.SerialT m (k, Seq.Seq c)
+groupByDiscriminatedKey s = do
+  lkc <- S.yieldM (S.toList s)
+  let g :: [(k, c)] -> (k, Seq.Seq c)
+      g x = let k = fst (head x) in (k, F.fold $ fmap (Seq.singleton . snd) x)
+  S.fromFoldable $ fmap g $ DG.groupWith fst lkc
+{-# INLINABLE groupByDiscriminatedKey #-}

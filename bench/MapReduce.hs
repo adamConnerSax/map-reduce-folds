@@ -58,11 +58,13 @@ benchIO name src f = bench name $ nfIO $ randomRIO (1, 1) >>= f . src
 filterPF = even . snd
 assignPF = id -- this is a function from the "data" to a pair (key, data-to-process).
 reducePFold = FL.premap realToFrac FL.mean
-reducePF k hx = (k, FL.fold reducePFold hx)
+reducePF k = fmap (M.singleton k) $ reducePFold  -- k -> Fold x (Map k x)
+doReducePF k = FL.fold (reducePF k)
 
-direct :: Foldable g => g (Char, Int) -> [(Char, Double)]
+direct :: Foldable g => g (Char, Int) -> M.Map Char Double --[(Char, Double)]
 direct =
-  fmap (uncurry reducePF)
+  F.fold
+    . fmap (uncurry doReducePF)
     . HM.toList
     . HM.fromListWith (<>)
     . fmap (second $ pure @[])
@@ -71,9 +73,10 @@ direct =
 {-# INLINE direct #-}
 
 
-directFoldl :: Foldable g => g (Char, Int) -> [(Char, Double)]
+directFoldl :: Foldable g => g (Char, Int) -> M.Map Char Double
 directFoldl =
-  fmap (uncurry reducePF)
+  F.fold
+    . fmap (uncurry doReducePF)
     . HM.toList
     . HM.fromListWith (<>)
     . fmap (second $ pure @[])
@@ -83,63 +86,114 @@ directFoldl =
 
 
 
-mapReduceList :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceList :: Foldable g => g (Char, Int) -> M.Map Char Double
 mapReduceList = FL.fold
-  (MRL.listEngine MRL.groupByHashableKey
-                  (MR.Filter filterPF)
-                  (MR.Assign id)
-                  (MR.Reduce reducePF)
+  (fmap
+    F.fold
+    (MRL.listEngine MRL.groupByHashableKey
+                    (MR.Filter filterPF)
+                    (MR.Assign id)
+                    (MR.ReduceFold reducePF)
+    )
   )
 {-# INLINE mapReduceList #-}
 
-mapReduceListP :: Foldable g => g (Char, Int) -> [(Char, Double)]
+mapReduceListP :: Foldable g => g (Char, Int) -> M.Map Char Double
 mapReduceListP = FL.fold
-  (MRP.parallelListEngine 6
-                          MRL.groupByHashableKey
-                          (MR.Filter filterPF)
-                          (MR.Assign id)
-                          (MR.Reduce reducePF)
+  (fmap
+    F.fold
+    (MRP.parallelListEngine 6
+                            MRL.groupByHashableKey
+                            (MR.Filter filterPF)
+                            (MR.Assign id)
+                            (MR.ReduceFold reducePF)
+    )
   )
 {-# INLINE mapReduceListP #-}
 
 
-mapReduceStreaming :: Foldable g => g (Char, Int) -> [(Char, Double)]
-mapReduceStreaming = runIdentity . MRS.resultToList . FL.fold
-  (MRS.streamingEngine MRS.groupByHashableKey
-                       (MR.Filter filterPF)
-                       (MR.Assign id)
-                       (MR.Reduce reducePF)
+mapReduceStreaming :: Foldable g => g (Char, Int) -> M.Map Char Double
+mapReduceStreaming = FL.fold
+  (MRS.concatStreamFold
+    (MRS.streamingEngine MRS.groupByHashableKey
+                         (MR.Filter filterPF)
+                         (MR.Assign id)
+                         (MR.ReduceFold reducePF)
+    )
   )
 {-# INLINE mapReduceStreaming #-}
 
-mapReduceStreamly :: Foldable g => g (Char, Int) -> [(Char, Double)]
-mapReduceStreamly = runIdentity . MRSL.resultToList . FL.fold
-  (MRSL.streamlyEngine MRSL.groupByHashableKey
-                       (MR.Filter filterPF)
-                       (MR.Assign id)
-                       (MR.Reduce reducePF)
+mapReduceStreamlyOrd :: Foldable g => g (Char, Int) -> M.Map Char Double
+mapReduceStreamlyOrd = FL.fold
+  (MRSL.concatStreamFold
+    (MRSL.streamlyEngine MRSL.groupByOrderedKey
+                         (MR.Filter filterPF)
+                         (MR.Assign id)
+                         (MR.ReduceFold reducePF)
+    )
   )
-{-# INLINE mapReduceStreamly #-}
+{-# INLINE mapReduceStreamlyOrd #-}
+
+mapReduceStreamlyHash :: Foldable g => g (Char, Int) -> M.Map Char Double
+mapReduceStreamlyHash = FL.fold
+  (MRSL.concatStreamFold
+    (MRSL.streamlyEngine MRSL.groupByHashableKey
+                         (MR.Filter filterPF)
+                         (MR.Assign id)
+                         (MR.ReduceFold reducePF)
+    )
+  )
+{-# INLINE mapReduceStreamlyHash #-}
+
+mapReduceStreamlyHashST :: Foldable g => g (Char, Int) -> M.Map Char Double
+mapReduceStreamlyHashST = FL.fold
+  (MRSL.concatStreamFold
+    (MRSL.streamlyEngine MRSL.groupByHashableKeyST
+                         (MR.Filter filterPF)
+                         (MR.Assign id)
+                         (MR.ReduceFold reducePF)
+    )
+  )
+{-# INLINE mapReduceStreamlyHashST #-}
+
+mapReduceStreamlyDiscrimination
+  :: Foldable g => g (Char, Int) -> M.Map Char Double
+mapReduceStreamlyDiscrimination = FL.fold
+  (MRSL.concatStreamFold
+    (MRSL.streamlyEngine MRSL.groupByDiscriminatedKey
+                         (MR.Filter filterPF)
+                         (MR.Assign id)
+                         (MR.ReduceFold reducePF)
+    )
+  )
+{-# INLINE mapReduceStreamlyDiscrimination #-}
+
 
 mapReduceStreamlyC
   :: forall tIn tOut m g
    . (MonadAsync m, Foldable g, MRSL.IsStream tIn, MRSL.IsStream tOut)
   => g (Char, Int)
-  -> m [(Char, Double)]
-mapReduceStreamlyC = MRSL.resultToList . FL.fold
-  ((MRSL.concurrentStreamlyEngine @tIn @tOut) MRSL.groupByHashableKey
-                                              (MR.Filter filterPF)
-                                              (MR.Assign id)
-                                              (MR.Reduce reducePF)
+  -> m (M.Map Char Double)
+mapReduceStreamlyC = FL.foldM
+  (MRSL.concatConcurrentStreamFold
+    ((MRSL.concurrentStreamlyEngine @tIn @tOut) MRSL.groupByHashableKey
+                                                (MR.Filter filterPF)
+                                                (MR.Assign id)
+                                                (MR.ReduceFold reducePF)
+    )
   )
 {-# INLINE mapReduceStreamlyC #-}
 
-mapReduceVector :: Foldable g => g (Char, Int) -> [(Char, Double)]
-mapReduceVector = MRV.toList . FL.fold
-  (MRV.vectorEngine MRV.groupByHashableKey
-                    (MR.Filter filterPF)
-                    (MR.Assign id)
-                    (MR.Reduce reducePF)
+
+mapReduceVector :: Foldable g => g (Char, Int) -> M.Map Char Double
+mapReduceVector = FL.fold
+  (fmap
+    F.fold
+    (MRV.vectorEngine MRV.groupByHashableKey
+                      (MR.Filter filterPF)
+                      (MR.Assign id)
+                      (MR.ReduceFold reducePF)
+    )
   )
 {-# INLINE mapReduceVector #-}
 
@@ -165,9 +219,18 @@ benchOne dat = bgroup
   , benchPure "mapReduce (Streaming.Stream Engine, strict hash map)"
               (const dat)
               mapReduceStreaming
+  , benchPure "mapReduce (Streamly.SerialT Engine, strict map)"
+              (const dat)
+              mapReduceStreamlyOrd
   , benchPure "mapReduce (Streamly.SerialT Engine, strict hash map)"
               (const dat)
-              mapReduceStreamly
+              mapReduceStreamlyHash
+  , benchPure "mapReduce (Streamly.SerialT Engine, strict hash table, ST)"
+              (const dat)
+              mapReduceStreamlyHashST
+  , benchPure "mapReduce (Streamly.SerialT Engine, discrimination)"
+              (const dat)
+              mapReduceStreamlyDiscrimination
   , benchPure "mapReduce (Data.Vector Engine, strict hash map)"
               (const dat)
               mapReduceVector
@@ -215,50 +278,59 @@ assignMF (a, b, c) = (c, (a, b))
 -- compute the average of the sum of the values in A and B for each group
 reduceMFold :: FL.Fold (Int, Int) Double
 reduceMFold = let g (x, y) = realToFrac (x + y) in FL.premap g FL.mean
+--reduceMFoldMap k = fmap (M.singleton k) reduceMFold  
 
 -- return [(C, <A+B>)]
 
-directM :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
+directM :: Foldable g => g (M.Map T.Text Int) -> M.Map Int Double
 directM =
-  M.toList
-    . fmap (FL.fold reduceMFold)
+  fmap (FL.fold reduceMFold)
     . M.fromListWith (<>)
     . fmap (second (pure @[]) . assignMF)
     . catMaybes
     . fmap unpackMF
     . F.toList
 
-mapReduce2List :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
+mapReduce2List :: Foldable g => g (M.Map T.Text Int) -> M.Map Int Double
 mapReduce2List = FL.fold
-  (MRL.listEngine MRL.groupByHashableKey
-                  (MR.Unpack unpackMF)
-                  (MR.Assign assignMF)
-                  (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
-  )
-
-
-mapReduce2Streaming :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
-mapReduce2Streaming = runIdentity . MRS.resultToList . FL.fold
-  (MRS.streamingEngine MRS.groupByHashableKey
-                       (MR.Unpack unpackMF)
-                       (MR.Assign assignMF)
-                       (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
-  )
-
-mapReduce2Streamly :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
-mapReduce2Streamly = runIdentity . MRSL.resultToList . FL.fold
-  (MRSL.streamlyEngine MRSL.groupByHashableKey
-                       (MR.Unpack unpackMF)
-                       (MR.Assign assignMF)
-                       (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
-  )
-
-mapReduce2Vector :: Foldable g => g (M.Map T.Text Int) -> [(Int, Double)]
-mapReduce2Vector = MRV.toList . FL.fold
-  (MRV.vectorEngine MRV.groupByHashableKey
+  (fmap
+    F.fold
+    (MRL.listEngine MRL.groupByHashableKey
                     (MR.Unpack unpackMF)
                     (MR.Assign assignMF)
-                    (MR.foldAndRelabel reduceMFold (\k x -> (k, x)))
+                    (MR.foldAndRelabel reduceMFold M.singleton)
+    )
+  )
+
+mapReduce2Streaming :: Foldable g => g (M.Map T.Text Int) -> M.Map Int Double
+mapReduce2Streaming = FL.fold
+  (MRS.concatStreamFold
+    (MRS.streamingEngine MRS.groupByHashableKey
+                         (MR.Unpack unpackMF)
+                         (MR.Assign assignMF)
+                         (MR.foldAndRelabel reduceMFold M.singleton)
+    )
+  )
+
+mapReduce2Streamly :: Foldable g => g (M.Map T.Text Int) -> M.Map Int Double
+mapReduce2Streamly = FL.fold
+  (MRSL.concatStreamFold
+    (MRSL.streamlyEngine MRSL.groupByHashableKey
+                         (MR.Unpack unpackMF)
+                         (MR.Assign assignMF)
+                         (MR.foldAndRelabel reduceMFold M.singleton)
+    )
+  )
+
+mapReduce2Vector :: Foldable g => g (M.Map T.Text Int) -> M.Map Int Double
+mapReduce2Vector = FL.fold
+  (fmap
+    F.fold
+    (MRV.vectorEngine MRV.groupByHashableKey
+                      (MR.Unpack unpackMF)
+                      (MR.Assign assignMF)
+                      (MR.foldAndRelabel reduceMFold M.singleton)
+    )
   )
 
 {-
