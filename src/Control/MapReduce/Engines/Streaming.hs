@@ -28,17 +28,18 @@ module Control.MapReduce.Engines.Streaming
   (
     -- * Helper Types
     StreamResult(..)
+
     -- * Engines
   , streamingEngine
   , streamingEngineM
 
-  -- * result extractors
+  -- * Result Extractors
   , resultToList
   , concatStream
   , concatStreamFold
   , concatStreamFoldM
 
-  -- * groupBy functions
+  -- * @groupBy@ functions
   , groupByHashableKey
   , groupByOrderedKey
   )
@@ -61,14 +62,14 @@ import           Streaming                      ( Stream
 import           Control.Arrow                  ( second )
 
 
--- | case analysis of Unpack for streaming based mapReduce
+-- | unpack for streaming based map/reduce
 unpackStream
   :: MRC.Unpack x y -> S.Stream (Of x) Identity r -> Stream (Of y) Identity r
 unpackStream (MRC.Filter t) = S.filter t
 unpackStream (MRC.Unpack f) = S.concat . S.map f
 {-# INLINABLE unpackStream #-}
 
--- | case analysis of Unpack for streaming based mapReduce
+-- | effectful (monadic) unpack for streaming based map/reduce
 unpackStreamM
   :: Monad m => MRC.UnpackM m x y -> Stream (Of x) m r -> Stream (Of y) m r
 unpackStreamM (MRC.FilterM t) = S.filterM t
@@ -114,15 +115,17 @@ concatStreaming = S.iterT g . fmap (const mempty)
 concatStream :: (Monad m, Monoid a) => StreamResult m a -> m a
 concatStream = concatStreaming . unRes
 
+-- | apply monoidal stream-concatenation to a fold returning a stream to produce a fold returning the monoid
 concatStreamFold
   :: Monoid b => FL.Fold a (StreamResult Identity b) -> FL.Fold a b
 concatStreamFold = fmap (S.runIdentity . concatStream)
 
+-- | apply monoidal stream-concatenation to an effectful fold returning a stream to produce an effectful fold returning the monoid
 concatStreamFoldM
   :: (Monad m, Monoid b) => FL.FoldM m a (StreamResult m b) -> FL.FoldM m a b
 concatStreamFoldM = MRC.postMapM concatStream
 
--- | map-reduce-fold engine builder returning a @StreamResult@
+-- | map-reduce-fold builder returning a @StreamResult@
 streamingEngine
   :: (Foldable g, Functor g)
   => (  forall z r
@@ -140,7 +143,7 @@ streamingEngine groupByKey u (MRC.Assign a) r = fmap StreamResult $ FL.Fold
   )
 {-# INLINABLE streamingEngine #-}
 
--- | effectful map-reduce-fold engine builder returning a @StreamResult@
+-- | effectful map-reduce-fold builder returning a @StreamResult@
 streamingEngineM
   :: (Monad m, Traversable g)
   => (forall z r . Stream (Of (k, z)) m r -> Stream (Of (k, g z)) m r)

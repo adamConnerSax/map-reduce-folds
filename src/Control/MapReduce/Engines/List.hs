@@ -29,7 +29,7 @@ module Control.MapReduce.Engines.List
     listEngine
   , listEngineM
 
-  -- * groupBy functions
+  -- * @groupBy@ Functions
   , groupByHashableKey
   , groupByOrderedKey
 
@@ -54,13 +54,13 @@ import           Control.Arrow                  ( second )
 
 
 
--- | case analysis of Unpack for list based mapReduce
+-- | unpack for list based map/reduce
 unpackList :: MRC.Unpack x y -> [x] -> [y]
 unpackList (MRC.Filter t) = L.filter t
 unpackList (MRC.Unpack f) = L.concatMap (F.toList . f)
 {-# INLINABLE unpackList #-}
 
--- | case analysis of Unpack for list based mapReduce
+-- | effectful unpack for list based map/reduce
 unpackListM :: MRC.UnpackM m x y -> [x] -> m [y]
 unpackListM (MRC.FilterM t) = filterM t
 unpackListM (MRC.UnpackM f) = fmap L.concat . traverse (fmap F.toList . f)
@@ -78,7 +78,7 @@ groupByOrderedKey =
   MS.toList . MS.fromListWith (<>) . fmap (second Seq.singleton)
 {-# INLINABLE groupByOrderedKey #-}
 
--- | map-reduce-fold engine builder using (Hashable k, Eq k) keys and returning a [] result
+-- | map-reduce-fold builder using (Hashable k, Eq k) keys and returning a [] result
 listEngine
   :: (Foldable g, Functor g)
   => ([(k, c)] -> [(k, g c)])
@@ -88,7 +88,7 @@ listEngine groupByKey u (MRC.Assign a) r = fmap
   FL.list
 {-# INLINABLE listEngine #-}
 
--- | effectful map-reduce-fold engine builder using (Hashable k, Eq k) keys and returning a [] result
+-- | effectful map-reduce-fold builder using (Hashable k, Eq k) keys and returning a [] result
 listEngineM
   :: (Monad m, Traversable g)
   => ([(k, c)] -> [(k, g c)])

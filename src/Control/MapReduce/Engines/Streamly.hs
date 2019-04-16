@@ -38,20 +38,20 @@ module Control.MapReduce.Engines.Streamly
   , streamlyEngineM
   , concurrentStreamlyEngine
 
-  -- * result extraction
+  -- * Result Extraction
   , resultToList
   , concatStream
   , concatStreamFold
   , concatStreamFoldM
   , concatConcurrentStreamFold
 
-  -- * groupBy functions
+  -- * @groupBy@ Functions
   , groupByHashableKey
   , groupByOrderedKey
   , groupByHashableKeyST
   , groupByDiscriminatedKey
 
-  -- * re-exports
+  -- * Re-Exports
   , SerialT
   , WSerialT
   , AheadT
@@ -90,13 +90,13 @@ import           Streamly                       ( SerialT
                                                 , IsStream
                                                 )
 
--- | case analysis of @Unpack@ for streamly based map/reduce
+-- | unpack for streamly based map/reduce
 unpackStream :: S.IsStream t => MRC.Unpack x y -> t Identity x -> t Identity y
 unpackStream (MRC.Filter t) = S.filter t
 unpackStream (MRC.Unpack f) = S.concatMap (S.fromFoldable . f)
 {-# INLINABLE unpackStream #-}
 
--- | case analysis of @Unpack@ for streamly map/reduce
+-- | effectful (monadic) unpack for streamly based map/reduce
 unpackStreamM :: (S.IsStream t, Monad m) => MRC.UnpackM m x y -> t m x -> t m y
 unpackStreamM (MRC.FilterM t) = S.filterM t
 unpackStreamM (MRC.UnpackM f) = S.concatMapM (fmap S.fromFoldable . f)
@@ -124,10 +124,9 @@ concatConcurrentStreamFold
   :: (Monad m, Monoid b, S.IsStream t) => FL.Fold a (t m b) -> FL.FoldM m a b
 concatConcurrentStreamFold = concatStreamFoldM . FL.generalize
 
--- | map-reduce-fold engine builder returning a @SerialT Identity d@ result
+-- | map-reduce-fold builder returning a @SerialT Identity d@ result
 streamlyEngine
-  :: forall g y k c x d
-   . (Foldable g, Functor g)
+  :: (Foldable g, Functor g)
   => (forall z . S.SerialT Identity (k, z) -> S.SerialT Identity (k, g z))
   -> MRE.MapReduceFold y k c (SerialT Identity) x d
 streamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
@@ -140,14 +139,14 @@ streamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
   )
 {-# INLINABLE streamlyEngine #-}
 
--- | case analysis of @Unpack@ for streaming based mapReduce
+-- | unpack for concurrent streamly based map/reduce
 unpackConcurrently
   :: (S.MonadAsync m, S.IsStream t) => MRC.Unpack x y -> t m x -> t m y
 unpackConcurrently (MRC.Filter t) = S.filter t
 unpackConcurrently (MRC.Unpack f) = S.concatMap (S.fromFoldable . f)
 {-# INLINABLE unpackConcurrently #-}
 
--- | possibly concurrent map-reduce-fold engine builder returning an @(Istream t, MonadAsync m) => t m d@ result
+-- | possibly (depending on chosen stream types) concurrent map-reduce-fold builder returning an @(Istream t, MonadAsync m) => t m d@ result
 concurrentStreamlyEngine
   :: forall tIn tOut m g y k c x d
    . (S.IsStream tIn, S.IsStream tOut, S.MonadAsync m, Foldable g, Functor g)
@@ -166,11 +165,10 @@ concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
 {-# INLINABLE concurrentStreamlyEngine #-}
 
 
--- | effectful map-reduce-fold engine builder returning a (Istream t => t m d) result
+-- | effectful map-reduce-fold engine returning a (Istream t => t m d) result
 -- The "MonadAsync" constraint here more or less requires us to run in IO, or something IO like.
 streamlyEngineM
-  :: forall t m g y k c x d
-   . (S.IsStream t, Monad m, S.MonadAsync m, Traversable g)
+  :: (S.IsStream t, Monad m, S.MonadAsync m, Traversable g)
   => (forall z . SerialT m (k, z) -> SerialT m (k, g z))
   -> MRE.MapReduceFoldM m y k c (t m) x d
 streamlyEngineM groupByKey u (MRC.AssignM a) r =
@@ -190,8 +188,7 @@ streamlyEngineM groupByKey u (MRC.AssignM a) r =
 -- | Group streamly stream of @(k,c)@ by @hashable@ key.
 -- NB: this function uses the fact that @SerialT m@ is a monad
 groupByHashableKey
-  :: forall m k c
-   . (Monad m, Hashable k, Eq k)
+  :: (Monad m, Hashable k, Eq k)
   => S.SerialT m (k, c)
   -> S.SerialT m (k, Seq.Seq c)
 groupByHashableKey s = do
@@ -204,10 +201,7 @@ groupByHashableKey s = do
 -- | Group streamly stream of @(k,c)@ by ordered key.
 -- NB: this function uses the fact that @SerialT m@ is a monad
 groupByOrderedKey
-  :: forall m k c
-   . (Monad m, Ord k)
-  => S.SerialT m (k, c)
-  -> S.SerialT m (k, Seq.Seq c)
+  :: (Monad m, Ord k) => S.SerialT m (k, c) -> S.SerialT m (k, Seq.Seq c)
 groupByOrderedKey s = do
   lkc <- S.yieldM (S.toList s)
   let hm = MS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
@@ -217,8 +211,7 @@ groupByOrderedKey s = do
 -- | Group streamly stream of @(k,c)@ by @hashable@ key. Uses mutable hashtables running in the ST monad.
 -- NB: this function uses the fact that @SerialT m@ is a monad
 groupByHashableKeyST
-  :: forall m k c
-   . (Monad m, Hashable k, Eq k)
+  :: (Monad m, Hashable k, Eq k)
   => S.SerialT m (k, c)
   -> S.SerialT m (k, Seq.Seq c)
 groupByHashableKeyST st = do
@@ -233,8 +226,7 @@ groupByHashableKeyST st = do
 -- | Group streamly stream of @(k,c)@ by key with instance of Grouping from <http://hackage.haskell.org/package/discrimination>.
 -- NB: this function uses the fact that @SerialT m@ is a monad
 groupByDiscriminatedKey
-  :: forall m k c
-   . (Monad m, DG.Grouping k)
+  :: (Monad m, DG.Grouping k)
   => S.SerialT m (k, c)
   -> S.SerialT m (k, Seq.Seq c)
 groupByDiscriminatedKey s = do

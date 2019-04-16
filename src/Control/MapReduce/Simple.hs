@@ -35,16 +35,17 @@ module Control.MapReduce.Simple
   , assign
 
   -- * Reducers
+  -- $reducers
   , processAndLabel
   , processAndLabelM
   , foldAndLabel
   , foldAndLabelM
 
-  -- * reduce transformers 
+  -- * Reduce Transformers 
   , reduceMapWithKey
   , reduceMMapWithKey
 
-  -- * simplified map-reduce folds
+  -- * Default Map-Reduce Folds to @[]@
   , mapReduceFold
   , mapReduceFoldM
   , hashableMapReduceFold
@@ -52,11 +53,11 @@ module Control.MapReduce.Simple
   , unpackOnlyFold
   , unpackOnlyFoldM
 
-  -- * helper functions to simplify results
+  -- * Simplify Results
   , concatFold
   , concatFoldM
 
-  -- * re-exports
+  -- * Re-Exports
   , module Control.MapReduce.Core
   , Hashable
   )
@@ -96,7 +97,7 @@ filterUnpack :: (x -> Bool) -> MR.Unpack x x
 filterUnpack = MR.Filter
 {-# INLINABLE filterUnpack #-}
 
--- | Assign via two functions, one that provides the key and one that provides the data to be grouped by that key
+-- | Assign via two functions of @y@, one that provides the key and one that provides the data to be grouped by that key.
 assign :: forall k y c . (y -> k) -> (y -> c) -> MR.Assign k y c
 assign getKey getCols = let f !y = (getKey y, getCols y) in MR.Assign f
 {-# INLINABLE assign #-}
@@ -115,10 +116,13 @@ reduceMMapWithKey f r = case r of
   MR.ReduceFoldM gf -> MR.ReduceFoldM $ \k -> fmap (f k) (gf k)
 {-# INLINABLE reduceMMapWithKey #-}
 
--- | The most common case is that the reduction doesn't depend on the key
--- So we add support functions for processing the data and then relabeling with the key
--- And we do this for the four variations of Reduce
--- create a Reduce from a function of the grouped data to y and a function from the key and y to the result type
+
+{- $reducers
+The most common case is that the reduction doesn't depend on the key.
+These functions combine a key-independent processing step and a labeling step for the four variations of @Reduce@.
+-}
+
+-- | create a Reduce from a function of the grouped data to y and a function from the key and y to the result type
 processAndLabel
   :: (forall h . (Foldable h, Functor h) => h x -> y)
   -> (k -> y -> z)

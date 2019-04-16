@@ -180,7 +180,10 @@ data Reduce k x d where
   Reduce :: (k -> (forall h. (Foldable h, Functor h) => (h x -> d))) -> Reduce k x d
   ReduceFold :: (k -> FL.Fold x d) -> Reduce k x d
 
--- | Reduce step for effectful reductions
+-- | Reduce step for effectful reductions.
+-- It is *strongly* suggested that you use Folds for this step.  Type-inference and
+-- applicative optimization are more straightforward that way.  The non-Fold contructors are
+-- there in order to retro-fit existing functions.
 data ReduceM m k x d where
   ReduceM :: Monad m => (k -> (forall h. (Foldable h, Functor h) => (h x -> m d))) -> ReduceM m k x d
   ReduceFoldM :: Monad m => (k -> FL.FoldM m x d) -> ReduceM m k x d
@@ -230,8 +233,8 @@ generalizeReduce (ReduceFold f) = ReduceFoldM $ \k -> FL.generalize (f k)
 {-# INLINABLE generalizeReduce #-}
 
 -- TODO: submit a PR to foldl for this
--- | Given a monadic Control.Foldl fold, a @FoldM x a b@, we can use its @Functor@ instance
--- to apply a non-effectful (b -> c).  But to apply an effectful (b -> m c) we need this combinator.
+-- | Given an effectful (monadic) Control.Foldl fold, a @FoldM m x a@, we can use its @Functor@ instance
+-- to apply a non-effectful @(a -> b)@ to its result type.  To apply @(a -> m b)@, we need this combinator.
 postMapM :: Monad m => (a -> m b) -> FL.FoldM m x a -> FL.FoldM m x b
 postMapM f (FL.FoldM step begin done) = FL.FoldM step begin done'
   where done' x = done x >>= f

@@ -298,7 +298,7 @@ mapReduce2List = FL.fold
     (MRL.listEngine MRL.groupByHashableKey
                     (MR.Unpack unpackMF)
                     (MR.Assign assignMF)
-                    (MR.foldAndRelabel reduceMFold M.singleton)
+                    (MR.foldAndLabel reduceMFold M.singleton)
     )
   )
 
@@ -308,7 +308,7 @@ mapReduce2Streaming = FL.fold
     (MRS.streamingEngine MRS.groupByHashableKey
                          (MR.Unpack unpackMF)
                          (MR.Assign assignMF)
-                         (MR.foldAndRelabel reduceMFold M.singleton)
+                         (MR.foldAndLabel reduceMFold M.singleton)
     )
   )
 
@@ -318,7 +318,7 @@ mapReduce2Streamly = FL.fold
     (MRSL.streamlyEngine MRSL.groupByHashableKey
                          (MR.Unpack unpackMF)
                          (MR.Assign assignMF)
-                         (MR.foldAndRelabel reduceMFold M.singleton)
+                         (MR.foldAndLabel reduceMFold M.singleton)
     )
   )
 
@@ -329,7 +329,7 @@ mapReduce2Vector = FL.fold
     (MRV.vectorEngine MRV.groupByHashableKey
                       (MR.Unpack unpackMF)
                       (MR.Assign assignMF)
-                      (MR.foldAndRelabel reduceMFold M.singleton)
+                      (MR.foldAndLabel reduceMFold M.singleton)
     )
   )
 
