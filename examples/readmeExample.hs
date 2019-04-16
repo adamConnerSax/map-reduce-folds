@@ -5,9 +5,9 @@ import qualified Control.Foldl                 as FL
 import qualified Data.Map                      as M
 
 unpack = MR.filterUnpack even -- filter, keeping even numbers
-isMultipleOf3 x = (x `mod` 3) == 0
 
 -- assign each number a key of True or False depending on whether it's a multiple of 3. Group the number itself.
+isMultipleOf3 x = (x `mod` 3) == 0
 assign = MR.assign isMultipleOf3 id
 
 reduce = MR.foldAndLabel FL.sum M.singleton -- sum each group and then create a singleton Map for later combining
