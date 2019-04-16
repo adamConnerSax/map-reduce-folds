@@ -41,6 +41,8 @@ where
 
 import qualified Control.MapReduce.Core        as MRC
 import qualified Control.MapReduce.Engines     as MRE
+import qualified Control.MapReduce.Engines.GroupBy
+                                               as MRG
 
 import qualified Control.Foldl                 as FL
 import qualified Data.List                     as L
@@ -73,7 +75,7 @@ groupByHashableKey =
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
 groupByOrderedKey :: Ord k => [(k, c)] -> [(k, [c])]
-groupByOrderedKey = MS.toList . MS.fromListWith (<>) . fmap (second $ pure @[])
+groupByOrderedKey = MRG.groupByOrderedKey (pure @[]) FL.list --MS.toList . MS.fromListWith (<>) . fmap (second $ pure @[])
 {-# INLINABLE groupByOrderedKey #-}
 
 -- | map-reduce-fold engine builder using (Hashable k, Eq k) keys and returning a [] result

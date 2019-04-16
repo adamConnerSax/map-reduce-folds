@@ -11,8 +11,6 @@ import           Criterion
 
 
 import           Control.MapReduce             as MR
-import           Control.MapReduce.Engines.GroupBy
-                                               as MRG
 import           Control.MapReduce.Engines.List
                                                as MRL
 import           Control.MapReduce.Engines.Streaming

@@ -241,16 +241,16 @@ seqF :: FL.Fold a (S.Seq a)
 seqF = FL.Fold (S.|>) S.empty id
 
 -- | convert a function which takes a foldable container of x and produces an a into a Fold x a.
--- uses Data.Sequence.Seq as an intermediate type becuase it should behave well whether
--- f is a left or right fold
+-- uses Data.Sequence.Seq as an intermediate type because it should behave well whether
+-- f is a left or right fold. 
 -- This can be helpful in putting an existing function into a Reduce.
 functionToFold :: (forall h . Foldable h => h x -> a) -> FL.Fold x a
 functionToFold f = fmap f seqF
 
 -- | convert a function which takes a foldable container of x and produces an (m a) into a FoldM m x a.
--- uses Data.Sequence.Seq as an intermediate type becuase it should behave well whether
+-- uses Data.Sequence.Seq as an intermediate type because it should behave well whether
 -- f is a left or right fold.
--- This can be helpful in packing an existing function into a ReduceM.
+-- This can be helpful in putting an existing function into a ReduceM.
 functionToFoldM
   :: Monad m => (forall h . Foldable h => h x -> m a) -> FL.FoldM m x a
 functionToFoldM f = postMapM f $ FL.generalize seqF

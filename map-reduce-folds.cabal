@@ -37,7 +37,6 @@ library
                  , Control.MapReduce.Core
                  , Control.MapReduce.Simple
                  , Control.MapReduce.Engines
-                 , Control.MapReduce.Engines.GroupBy
                  , Control.MapReduce.Engines.Streaming
                  , Control.MapReduce.Engines.Streamly
                  , Control.MapReduce.Engines.Vector

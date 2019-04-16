@@ -24,9 +24,9 @@ Stability   : experimental
 Some standard groupBy functions. For use by engines.
 -}
 module Control.MapReduce.Engines.GroupBy
-  ( -- * General groupBy in the form we want
+  ( -- * General form
     groupBy
-    -- * Specific to keys with Ord k or (Hashable k, Eq k)
+    -- * Specific key types
   , groupByOrderedKey
   , groupByHashableKey
   )
@@ -47,14 +47,28 @@ original container.
 groupBy
   :: forall t k v l g
    . (Foldable g, Functor g)
-  => FL.Fold (k, v) t -- ^ fold to tree
+  => FL.Fold (k, v) t -- ^ fold to some (presumably tree) type
   -> (t -> [(k, l)]) -- ^ tree to List
   -> (forall a . FL.Fold a (g a)) -- ^ fold to g
   -> g (k, v)
   -> g (k, l)
-groupBy foldToMap mapToList foldOut x =
-  FL.fold foldOut . mapToList . FL.fold foldToMap $ x
+groupBy foldToMap mapToList foldOut =
+  FL.fold foldOut . mapToList . FL.fold foldToMap
 {-# INLINABLE groupBy #-}
+
+{-
+groupBy2
+  :: forall t k v l g
+   . (Foldable g, Functor g)
+  => FL.Fold (k, v) t -- ^ fold to some (presumably tree) type
+  -> (t) -- ^ tree to List
+  -> (forall a . FL.Fold a (g a)) -- ^ fold to g
+  -> g (k, v)
+  -> g (k, l)
+groupBy2 foldToMap mapToList foldOut =
+  FL.fold foldOut . mapToList . FL.fold foldToMap
+{-# INLINABLE groupBy #-}
+-}
 
 groupByOrderedKey
   :: forall g k v l

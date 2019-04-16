@@ -39,18 +39,14 @@ import qualified Control.Foldl                 as FL
 
 
 -- | case analysis of Reduce
-reduceFunction
-  :: MRC.Reduce k x d -> k -> (forall h . (Foldable h, Functor h) => h x -> d)
+reduceFunction :: (Foldable h, Functor h) => MRC.Reduce k x d -> k -> h x -> d
 reduceFunction (MRC.Reduce     f) k = f k
 reduceFunction (MRC.ReduceFold f) k = FL.fold (f k)
 {-# INLINABLE reduceFunction #-}
 
 -- | case analysis of ReduceM
 reduceFunctionM
-  :: Monad m
-  => MRC.ReduceM m k x d
-  -> k
-  -> (forall h . (Foldable h, Functor h) => h x -> m d)
+  :: (Traversable h, Monad m) => MRC.ReduceM m k x d -> k -> h x -> m d
 reduceFunctionM (MRC.ReduceM     f) k = f k
 reduceFunctionM (MRC.ReduceFoldM f) k = FL.foldM (f k)
 {-# INLINABLE reduceFunctionM #-}
