@@ -81,4 +81,11 @@ executable listStats
     hs-source-dirs: examples
     ghc-options: -O0 -Wall
     build-depends: map-reduce-folds -any
-                                 
+
+executable readmeExample
+    import: deps
+    main-is: readmeExample.hs
+    hs-source-dirs: examples
+    ghc-options: -O0 -Wall
+    build-depends: map-reduce-folds -any
+                                     

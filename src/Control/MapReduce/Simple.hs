@@ -35,10 +35,10 @@ module Control.MapReduce.Simple
   , assign
 
   -- * Reducers
-  , processAndRelabel
-  , processAndRelabelM
-  , foldAndRelabel
-  , foldAndRelabelM
+  , processAndLabel
+  , processAndLabelM
+  , foldAndLabel
+  , foldAndLabelM
 
   -- * reduce transformers 
   , reduceMapWithKey
@@ -119,35 +119,34 @@ reduceMMapWithKey f r = case r of
 -- So we add support functions for processing the data and then relabeling with the key
 -- And we do this for the four variations of Reduce
 -- create a Reduce from a function of the grouped data to y and a function from the key and y to the result type
-processAndRelabel
+processAndLabel
   :: (forall h . (Foldable h, Functor h) => h x -> y)
   -> (k -> y -> z)
   -> MR.Reduce k x z
-processAndRelabel process relabel = MR.Reduce $ \k -> relabel k . process
-{-# INLINABLE processAndRelabel #-}
+processAndLabel process relabel = MR.Reduce $ \k -> relabel k . process
+{-# INLINABLE processAndLabel #-}
 
 -- | create a monadic ReduceM from a function of the grouped data to (m y) and a function from the key and y to the result type
-processAndRelabelM
+processAndLabelM
   :: Monad m
   => (forall h . (Foldable h, Functor h) => h x -> m y)
   -> (k -> y -> z)
   -> MR.ReduceM m k x z
-processAndRelabelM processM relabel =
+processAndLabelM processM relabel =
   MR.ReduceM $ \k -> fmap (relabel k) . processM
-{-# INLINABLE processAndRelabelM #-}
+{-# INLINABLE processAndLabelM #-}
 
 -- | create a Reduce from a fold of the grouped data to y and a function from the key and y to the result type
-foldAndRelabel :: FL.Fold x y -> (k -> y -> z) -> MR.Reduce k x z
-foldAndRelabel fld relabel =
-  let q !k = fmap (relabel k) fld in MR.ReduceFold q
-{-# INLINABLE foldAndRelabel #-}
+foldAndLabel :: FL.Fold x y -> (k -> y -> z) -> MR.Reduce k x z
+foldAndLabel fld relabel = let q !k = fmap (relabel k) fld in MR.ReduceFold q
+{-# INLINABLE foldAndLabel #-}
 
 -- | create a monadic ReduceM from a monadic fold of the grouped data to (m y) and a function from the key and y to the result type
-foldAndRelabelM
+foldAndLabelM
   :: Monad m => FL.FoldM m x y -> (k -> y -> z) -> MR.ReduceM m k x z
-foldAndRelabelM fld relabel =
+foldAndLabelM fld relabel =
   let q !k = fmap (relabel k) fld in MR.ReduceFoldM q
-{-# INLINABLE foldAndRelabelM #-}
+{-# INLINABLE foldAndLabelM #-}
 
 -- | The simple fold types return lists of results.  Often we want to merge these into some other structure via (<>)
 concatFold :: (Monoid d, Foldable g) => FL.Fold a (g d) -> FL.Fold a d
