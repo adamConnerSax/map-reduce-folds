@@ -21,9 +21,9 @@ addAll :: (Foldable f, Num a) => f a -> a
 addAll = FL.fold FL.sum
 
 
-reduceSum = MR.foldAndRelabel FL.sum ((,))
-reduceSum' = MR.processAndRelabel addAll (,)
-reduceMean = MR.foldAndRelabel FL.mean ((,))
+reduceSum = MR.foldAndLabel FL.sum ((,))
+reduceSum' = MR.processAndLabel addAll (,)
+reduceMean = MR.foldAndLabel FL.mean ((,))
 
 -- sum of all even ints, grouped by whether or not they are mutliples of 3
 sumsF = MR.mapReduceFold onlyEven groupByMultOf3 reduceSum

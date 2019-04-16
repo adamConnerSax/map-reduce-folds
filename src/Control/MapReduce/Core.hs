@@ -116,7 +116,7 @@ instance P.Profunctor Unpack where
 
 -- | @UnpackM@ is for filtering or melting the input type. This version has a monadic result type to
 -- accomodate unpacking that might require randomness or logging during unpacking.
--- filter is a special case since (non-effectful) filtering can be often be done faster.  So we single it out. 
+-- filter is a special case since filtering can be often be done faster.  So we single it out. 
 data UnpackM m x y where
   FilterM :: Monad m => (x -> m Bool) -> UnpackM m x x
   UnpackM :: (Monad m, Traversable g) => (x -> m (g y)) -> UnpackM m x y
@@ -152,7 +152,7 @@ instance Profunctor (Assign k) where
   dimap l r (Assign h) = Assign $ second r . h . l --(\z -> let (k,c) = g (l z) in (k, r c))
   {-# INLINABLE dimap #-}
 
--- | Associate a key with a given item/row.  Monadic return type might be required for DB lookup of keys or logging during assigning.
+-- | Effectfully map @y@ into a @(k,c)@ pair for grouping 
 data AssignM m k y c where
   AssignM :: Monad m => (y -> m (k, c)) -> AssignM m k y c
 
@@ -165,7 +165,7 @@ instance Profunctor (AssignM m k) where
   {-# INLINABLE dimap #-}
 
 
--- | "lift" a non-monadic Assign to a monadic one for any monad m
+-- | lift a non-monadic Assign to a monadic one for any monad m
 generalizeAssign :: Monad m => Assign k y c -> AssignM m k y c
 generalizeAssign (Assign h) = AssignM $ return . h
 {-# INLINABLE generalizeAssign #-}
