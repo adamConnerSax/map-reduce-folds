@@ -31,7 +31,11 @@ module Control.MapReduce.Engines.Streaming
     -- * Engines
   , streamingEngine
   , streamingEngineM
+
+  -- * result extractors
   , resultToList
+  , concatStreamResult
+
   -- * groupBy functions
   , groupByHashableKey
   , groupByOrderedKey
@@ -46,6 +50,7 @@ import           Data.Functor.Identity          ( Identity )
 import           Data.Hashable                  ( Hashable )
 import qualified Data.HashMap.Strict           as HMS
 import qualified Data.Map.Strict               as MS
+import qualified Data.Sequence                 as Seq
 import qualified Streaming.Prelude             as S
 import qualified Streaming                     as S
 import           Streaming                      ( Stream
@@ -68,40 +73,52 @@ unpackStreamM (MRC.FilterM t) = S.filterM t
 unpackStreamM (MRC.UnpackM f) = S.concat . S.mapM f
 {-# INLINABLE unpackStreamM #-}
 
--- This all uses [c] internally and I'd rather it used a Stream there as well.  But when I try to do that, it's slow.
--- | group the mapped and assigned values by key using a Data.HashMap.Strict
+-- This all uses [c] internally, which perhaps doesn't matter sine it gets immediately folded over anyway?
+-- | group the mapped and assigned values by key using a @Data.HashMap.Strict@
 groupByHashableKey
   :: forall m k c r
    . (Monad m, Hashable k, Eq k)
   => Stream (Of (k, c)) m r
-  -> Stream (Of (k, [c])) m r
+  -> Stream (Of (k, Seq.Seq c)) m r
 groupByHashableKey s = S.effect $ do
   (lkc S.:> r) <- S.toList s
-  let hm = HMS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
+  let hm = HMS.fromListWith (<>) $ fmap (second Seq.singleton) lkc
   return $ HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') (return r) hm
 {-# INLINABLE groupByHashableKey #-}
 
--- | group the mapped and assigned values by key using a Data.Map.Strict
+-- | group the mapped and assigned values by key using a @Data.Map.Strict@
 groupByOrderedKey
   :: forall m k c r
    . (Monad m, Ord k)
   => Stream (Of (k, c)) m r
-  -> Stream (Of (k, [c])) m r
+  -> Stream (Of (k, Seq.Seq c)) m r
 groupByOrderedKey s = S.effect $ do
   (lkc S.:> r) <- S.toList s
-  let hm = MS.fromListWith (<>) $ fmap (second $ pure @[]) lkc
+  let hm = MS.fromListWith (<>) $ fmap (second Seq.singleton) lkc
   return $ MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') (return r) hm
 {-# INLINABLE groupByOrderedKey #-}
 
+-- | Wrap @Stream (Of d) m ()@ in a type which has @d@ as its last parameter
 newtype StreamResult m d = StreamResult { unRes :: Stream (Of d) m () }
+
+-- | get a @[]@ result from a Stream
 resultToList :: Monad m => StreamResult m d -> m [d]
 resultToList = S.toList_ . unRes
 
--- | map-reduce-fold engine builder returning a Stream result
+concatStream :: (Monad m, Monoid a) => Stream (Of a) m () -> m a
+concatStream = S.iterT g . fmap (const mempty)
+  where g (a S.:> ma) = fmap (a <>) ma
+
+-- | @mappend@ all elements of a @StreamResult@ of monoids
+concatStreamResult :: (Monad m, Monoid a) => StreamResult m a -> m a
+concatStreamResult = concatStream . unRes
+
+-- | map-reduce-fold engine builder returning a @StreamResult@
 streamingEngine
-  :: (  forall z r
+  :: (Foldable g, Functor g)
+  => (  forall z r
       . Stream (Of (k, z)) Identity r
-     -> Stream (Of (k, [z])) Identity r
+     -> Stream (Of (k, g z)) Identity r
      )
   -> MRE.MapReduceFold y k c (StreamResult Identity) x d
 streamingEngine groupByKey u (MRC.Assign a) r = fmap StreamResult $ FL.Fold
@@ -114,10 +131,10 @@ streamingEngine groupByKey u (MRC.Assign a) r = fmap StreamResult $ FL.Fold
   )
 {-# INLINABLE streamingEngine #-}
 
--- | effectful map-reduce-fold engine builder returning a StreamResult
+-- | effectful map-reduce-fold engine builder returning a @StreamResult@
 streamingEngineM
-  :: Monad m
-  => (forall z r . Stream (Of (k, z)) m r -> Stream (Of (k, [z])) m r)
+  :: (Monad m, Traversable g)
+  => (forall z r . Stream (Of (k, z)) m r -> Stream (Of (k, g z)) m r)
   -> MRE.MapReduceFoldM m y k c (StreamResult m) x d
 streamingEngineM groupByKey u (MRC.AssignM a) r =
   fmap StreamResult . FL.generalize $ FL.Fold
@@ -130,88 +147,3 @@ streamingEngineM groupByKey u (MRC.AssignM a) r =
     )
 {-# INLINABLE streamingEngineM #-}
 
-{-
--- | case analysis of Reduce for streaming based mapReduce
-reduceStream :: MRC.Reduce k x d -> k -> Stream (Of x) Identity r -> d
-reduceStream (MRC.Reduce     f) k s = runIdentity $ fmap (f k) $ S.toList_ s
-reduceStream (MRC.ReduceFold f) k s = runIdentity $ FL.purely S.fold_ (f k) s
-{-# INLINABLE reduceStream #-}
-
-reduceStreamM :: Monad m => MRC.ReduceM m k x d -> k -> Stream (Of x) m r -> m d
-reduceStreamM (MRC.ReduceM     f) k s = S.toList_ s >>= (f k)
-reduceStreamM (MRC.ReduceFoldM f) k s = FL.impurely S.foldM_ (f k) s
-{-# INLINABLE reduceStreamM #-}
--}
-
-{-
-groupByHashedKey
-  :: forall k c r
-   . (Hashable k, Eq k)
-  => Stream (Of (k, c)) Identity r
-  -> Stream (Of (k, [c])) Identity r
-groupByHashedKey s =
-  S.unfoldr (return . unFoldStep) $ second HMS.toList $ S.destroy
-    s
-    construct
-    runIdentity
-    (\r -> (r, HMS.empty))
- where
-  construct :: Of (k, c) (r, HMS.HashMap k [c]) -> (r, HMS.HashMap k [c])
-  construct ((k, c) S.:> (r, t)) = (r, HMS.insertWith (<>) k [c] t)
-  unFoldStep :: (r, [(k, x)]) -> (Either r ((k, x), (r, [(k, x)])))
-  unFoldStep (r, []    ) = Left r
-  unFoldStep (r, x : xs) = Right (x, (r, xs))
-{-# INLINABLE groupByHashedKey #-}
-
-groupByHashedKeyM
-  :: forall k c r m
-   . (Monad m, Hashable k, Eq k)
-  => Stream (Of (k, c)) m r
-  -> Stream (Of (k, [c])) m r
-groupByHashedKeyM s =
-  S.effect
-    $ fmap (S.unfoldr (return . unFoldStep) . second HMS.toList)
-    $ S.destroy s construct join (\r -> return (r, HMS.empty))
- where
-  construct :: Of (k, c) (m (r, HMS.HashMap k [c])) -> m (r, HMS.HashMap k [c])
-  construct ((k, c) S.:> mrt) = fmap (second $ HMS.insertWith (<>) k [c]) mrt
-  unFoldStep :: (r, [(k, x)]) -> (Either r ((k, x), (r, [(k, x)])))
-  unFoldStep (r, []    ) = Left r
-  unFoldStep (r, x : xs) = Right (x, (r, xs))
-{-# INLINABLE groupByHashedKeyM #-}
-
--- | group the mapped and assigned values by key using a Data.Map.Strict
-groupByOrderedKey
-  :: forall k c r
-   . Ord k
-  => Stream (Of (k, c)) Identity r
-  -> Stream (Of (k, [c])) Identity r
-groupByOrderedKey s = S.unfoldr (return . unFoldStep)
-  $ S.destroy s construct runIdentity (\r -> (r, MS.empty))
- where
-  construct :: Of (k, c) (r, MS.Map k [c]) -> (r, MS.Map k [c])
-  construct ((k, c) S.:> (r, t)) = (r, MS.insertWith (<>) k [c] t)
-  unFoldStep :: (r, MS.Map k x) -> (Either r ((k, x), (r, MS.Map k x)))
-  unFoldStep (r, t) =
-    if MS.null t then Left r else Right (MS.elemAt 0 t, (r, MS.drop 1 t))
-{-# INLINABLE groupByOrderedKey #-}
-
-groupByOrderedKeyM
-  :: forall k c r m
-   . (Monad m, Ord k)
-  => Stream (Of (k, c)) m r
-  -> Stream (Of (k, [c])) m r
-groupByOrderedKeyM s =
-  S.effect $ fmap (S.unfoldr (return . unFoldStep)) $ S.destroy
-    s
-    construct
-    join
-    (\r -> return (r, MS.empty))
- where
-  construct :: Of (k, c) (m (r, MS.Map k [c])) -> m (r, MS.Map k [c])
-  construct ((k, c) S.:> mrt) = fmap (second $ MS.insertWith (<>) k [c]) mrt
-  unFoldStep :: (r, MS.Map k x) -> (Either r ((k, x), (r, MS.Map k x)))
-  unFoldStep (r, t) =
-    if MS.null t then Left r else Right (MS.elemAt 0 t, (r, MS.drop 1 t))
-{-# INLINABLE groupByOrderedKeyM #-}
--}

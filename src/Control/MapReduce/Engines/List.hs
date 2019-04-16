@@ -41,8 +41,6 @@ where
 
 import qualified Control.MapReduce.Core        as MRC
 import qualified Control.MapReduce.Engines     as MRE
-import qualified Control.MapReduce.Engines.GroupBy
-                                               as MRG
 
 import qualified Control.Foldl                 as FL
 import qualified Data.List                     as L
@@ -50,6 +48,7 @@ import qualified Data.Foldable                 as F
 import           Data.Hashable                  ( Hashable )
 import qualified Data.HashMap.Strict           as HMS
 import qualified Data.Map.Strict               as MS
+import qualified Data.Sequence                 as Seq
 import           Control.Monad                  ( filterM )
 import           Control.Arrow                  ( second )
 
@@ -68,18 +67,22 @@ unpackListM (MRC.UnpackM f) = fmap L.concat . traverse (fmap F.toList . f)
 {-# INLINABLE unpackListM #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
-groupByHashableKey :: (Hashable k, Eq k) => [(k, c)] -> [(k, [c])]
+groupByHashableKey :: (Hashable k, Eq k) => [(k, c)] -> [(k, Seq.Seq c)]
 groupByHashableKey =
-  HMS.toList . HMS.fromListWith (<>) . fmap (second $ pure @[])
+  HMS.toList . HMS.fromListWith (<>) . fmap (second Seq.singleton)
 {-# INLINABLE groupByHashableKey #-}
 
 -- | group the mapped and assigned values by key using a Data.HashMap.Strict
-groupByOrderedKey :: Ord k => [(k, c)] -> [(k, [c])]
-groupByOrderedKey = MRG.groupByOrderedKey (pure @[]) FL.list --MS.toList . MS.fromListWith (<>) . fmap (second $ pure @[])
+groupByOrderedKey :: Ord k => [(k, c)] -> [(k, Seq.Seq c)]
+groupByOrderedKey =
+  MS.toList . MS.fromListWith (<>) . fmap (second Seq.singleton)
 {-# INLINABLE groupByOrderedKey #-}
 
 -- | map-reduce-fold engine builder using (Hashable k, Eq k) keys and returning a [] result
-listEngine :: ([(k, c)] -> [(k, [c])]) -> MRE.MapReduceFold y k c [] x d
+listEngine
+  :: (Foldable g, Functor g)
+  => ([(k, c)] -> [(k, g c)])
+  -> MRE.MapReduceFold y k c [] x d
 listEngine groupByKey u (MRC.Assign a) r = fmap
   (fmap (uncurry $ MRE.reduceFunction r) . groupByKey . fmap a . unpackList u)
   FL.list
@@ -87,7 +90,9 @@ listEngine groupByKey u (MRC.Assign a) r = fmap
 
 -- | effectful map-reduce-fold engine builder using (Hashable k, Eq k) keys and returning a [] result
 listEngineM
-  :: Monad m => ([(k, c)] -> [(k, [c])]) -> MRE.MapReduceFoldM m y k c [] x d
+  :: (Monad m, Traversable g)
+  => ([(k, c)] -> [(k, g c)])
+  -> MRE.MapReduceFoldM m y k c [] x d
 listEngineM groupByKey u (MRC.AssignM a) rM = MRC.postMapM
   ( (traverse (uncurry $ MRE.reduceFunctionM rM) =<<)
   . fmap groupByKey

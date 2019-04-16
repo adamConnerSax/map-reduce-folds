@@ -60,17 +60,17 @@ import           Control.Parallel.Strategies    ( NFData ) -- for re-export
 -- Chunks the input to numThreads chunks and sparks each chunk for mapping, merges the results, groups, then uses the same chunking and merging to do the reductions.
 -- grouping could also be parallel but that is under the control of the given function.
 parallelListEngine
-  :: forall y k c x d
-   . (NFData k, NFData c, NFData d)
+  :: forall g y k c x d
+   . (NFData k, NFData c, NFData d, Foldable g, Functor g)
   => Int
-  -> ([(k, c)] -> [(k, [c])])
+  -> ([(k, c)] -> [(k, g c)])
   -> MRE.MapReduceFold y k c [] x d
 parallelListEngine numThreads groupByKey u (MRC.Assign a) r =
   let chunkedF :: FL.Fold x [[x]] =
         fmap (L.divvy numThreads numThreads) FL.list
       mappedF :: FL.Fold x [(k, c)] =
         fmap (L.concat . parMapEach (fmap a . MRL.unpackList u)) chunkedF
-      groupedF :: FL.Fold x [(k, [c])] = fmap groupByKey mappedF
+      groupedF :: FL.Fold x [(k, g c)] = fmap groupByKey mappedF
       reducedF :: FL.Fold x [d]        = fmap
         ( L.concat
         . parMapEach (fmap (uncurry $ MRE.reduceFunction r))
