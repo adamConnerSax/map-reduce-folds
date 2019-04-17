@@ -63,7 +63,7 @@ library
 test-suite map-reduce-folds-test
   type: exitcode-stdio-1.0
   main-is: TestAll.hs
-  other-modules:
+  other-modules: Test1
   hs-source-dirs: test
   ghc-options: 
   build-depends:
