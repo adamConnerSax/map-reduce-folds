@@ -63,6 +63,8 @@ Some simple examples are in "examples/listStats.hs" and some others are in the b
 
 There is a wrapper for [Frames](http://hackage.haskell.org/package/Frames) available [here](https://github.com/adamConnerSax/Frames-map-reduce).
 
+
+https://travis-ci.org/adamConnerSax/map-reduce-folds.svg?branch=master
 _______
 
 
