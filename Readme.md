@@ -1,4 +1,5 @@
 # map-reduce-folds v 0.1.0.0
+[![Build Status](https://travis-ci.org/adamConnerSax/map-reduce-folds.svg?branch=master)](https://travis-ci.org/adamConnerSax/map-reduce-folds)
 ## Introduction
 map-reduce-folds is an attempt to find a good balance between simplicity, performance, and flexibility for simple map/reduce style operations on a foldable container ```f``` of some type ```x``` (e.g., ```[x]```). The goal of the package is to provide an efficient fold for the computation via the types in the [foldl](http://hackage.haskell.org/package/foldl-1.4.5/docs/Control-Foldl.html) package.  
 Folds can be composed Applicatively, which makes it simple to do many such operations on the same data and loop over it only once.
@@ -63,7 +64,6 @@ Some simple examples are in "examples/listStats.hs" and some others are in the b
 
 There is a wrapper for [Frames](http://hackage.haskell.org/package/Frames) available [here](https://github.com/adamConnerSax/Frames-map-reduce).
 
-[![Build Status](https://travis-ci.org/adamConnerSax/map-reduce-folds.svg?branch=master)](https://travis-ci.org/adamConnerSax/map-reduce-folds)
 _______
 
 
