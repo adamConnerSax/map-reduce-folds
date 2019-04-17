@@ -1,4 +1,5 @@
-cabal-version:       2.2.0
+cabal-version:       2.2
+                                          
 name:                map-reduce-folds
 version:             0.1.0.0
 build-type:          Simple
@@ -47,7 +48,6 @@ library
                  , Control.MapReduce.Engines.ParallelList
 
   build-depends:
---                dlist                >= 0.8.0 && < 0.9,
                 discrimination       >= 0.3   && < 0.4,
                 hashable             >= 1.2.7 && < 1.3,
                 hashtables           >= 1.2.0.0 && < 1.3.0.0,
