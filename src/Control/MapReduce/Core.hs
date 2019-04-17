@@ -51,17 +51,17 @@ well write them by hand.  An in-between case would be writing the unpack functio
 module Control.MapReduce.Core
   (
     -- * Basic Types for map reduce
-    -- ** non-monadic
+    -- ** Non-Monadic
     Unpack(..)
   , Assign(..)
   , Reduce(..)
 
-  -- ** monadic
+  -- ** Monadic
   , UnpackM(..)
   , AssignM(..)
   , ReduceM(..)
 
-  -- ** functions to generalize non-monadic to monadic
+  -- ** Non-Monadic -> Monadic
   , generalizeUnpack
   , generalizeAssign
   , generalizeReduce
@@ -71,7 +71,7 @@ module Control.MapReduce.Core
   , functionToFoldM
   , postMapM
 
-  -- * re-exports
+  -- * Re-Exports
   , Fold
   , FoldM
   , fold

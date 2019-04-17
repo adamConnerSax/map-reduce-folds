@@ -1,4 +1,9 @@
 # map-reduce-folds v 0.1.0.0
+
+[![Build Status][travis-badge]][travis]
+[![Hackage][hackage-badge]][hackage]
+[![Hackage Dependencies][hackage-deps-badge]][hackage-deps]
+
 [![Build Status](https://travis-ci.org/adamConnerSax/map-reduce-folds.svg?branch=master)](https://travis-ci.org/adamConnerSax/map-reduce-folds)
 ## Introduction
 map-reduce-folds is an attempt to find a good balance between simplicity, performance, and flexibility for simple map/reduce style operations on a foldable container ```f``` of some type ```x``` (e.g., ```[x]```). The goal of the package is to provide an efficient fold for the computation via the types in the [foldl](http://hackage.haskell.org/package/foldl-1.4.5/docs/Control-Foldl.html) package.  
@@ -98,3 +103,10 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+
+[travis]:        <https://travis-ci.org/adamConnerSax/map-reduce-folds>
+[travis-badge]:  <https://travis-ci.org/adamConnerSax/map-reduce-folds.svg?branch=master>
+[hackage]:       <https://hackage.haskell.org/package/map-reduce-folds>
+[hackage-badge]: <https://img.shields.io/hackage/v/map-reduce-folds.svg>
+[hackage-deps-badge]: <https://img.shields.io/hackage-deps/v/map-reduce-folds.svg>
+[hackage-deps]: <http://packdeps.haskellers.com/feed?needle=map-reduce-folds>
