@@ -33,7 +33,7 @@ assign = MR.assign isMultipleOf3 id
 
 reduce = MR.foldAndLabel FL.sum M.singleton -- sum each group and then create a singleton Map for later combining
 
--- of the first n integers, compute the sum of even numbers which are mutliples of 3 
+-- of the first n integers, compute the sum of even numbers which are multiples of 3 
 -- and the sum of even numbers which are not multiples of 3. 
 
 mrFold :: FL.Fold Int (M.Map Bool Int)
