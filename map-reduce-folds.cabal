@@ -95,16 +95,18 @@ benchmark bench-map-reduce
   default-language:    Haskell2010
 
 
-executable listStats
+test-suite listStats
     import: deps
+    type: exitcode-stdio-1.0       
     main-is: ListStats.hs
     hs-source-dirs: examples
     ghc-options: -Wall
     build-depends: map-reduce-folds -any
     default-language:    Haskell2010
 
-executable readmeExample
+test-suite readmeExample
     import: deps
+    type: exitcode-stdio-1.0       
     main-is: readmeExample.hs
     hs-source-dirs: examples
     ghc-options: -Wall
