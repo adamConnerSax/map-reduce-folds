@@ -62,5 +62,5 @@ tests = Group
   [ ("[] Engine"       , prop_mrSame mrFoldList)
   , ("Vector Engine"   , prop_mrSame mrFoldVector)
   , ("Streamly Engine" , prop_mrSame mrFoldStreamly)
-  , ("Stremaing Engine", prop_mrSame mrFoldStreaming)
+  , ("Streaming Engine", prop_mrSame mrFoldStreaming)
   ]
