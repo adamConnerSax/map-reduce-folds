@@ -37,7 +37,7 @@ library
   if flag(dump-core)
     build-depends: dump-core
     ghc-options: -fforce-recomp -fplugin=DumpCore -fplugin-opt DumpCore:core-html  
-  ghc-options: -Wall -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
+  ghc-options: -Wall -O -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
   exposed-modules: Control.MapReduce
                  , Control.MapReduce.Core
                  , Control.MapReduce.Simple
