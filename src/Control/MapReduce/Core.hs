@@ -170,10 +170,42 @@ generalizeAssign :: Monad m => Assign k y c -> AssignM m k y c
 generalizeAssign (Assign h) = AssignM $ return . h
 {-# INLINABLE generalizeAssign #-}
 
+{-
+-- | Convert any @forall h.Foldable h => (h x -> d)@ into a Control.Foldl Fold
+-- This requires choosing a structure, folding to that and then applying the given
+-- function.  This is used to convert reduce functions to folds but only once we
+-- know which intermediate structure the engine uses.  Thus this should incur no
+-- overhead.
+toFoldAny
+  :: (Foldable h, Foldable q) => FL.Fold x (q x) -> (h x -> d) -> FL.Fold x d
+toFoldAny toKnown f = fmap f toKnown
+{-# INLINABLE toFoldAny #-}
+
+{-
+toFold :: Foldable h => (h x -> d) -> FL.Fold x d
+toFold = toFoldAny FL.list
+{-# INLINABLE toFold #-}
+-}
+
+toFoldAnyM
+  :: (Foldable h, Foldable q, Monad m)
+  => FL.FoldM m x (q x)
+  -> (h x -> m d)
+  -> FL.FoldM m x d
+toFoldAnyM toKnown f = fmap f toKnown
+{-# INLINABLE toFoldAnyM #-}
+
+{-
+toFoldM :: (Foldable h, Monad m) => (h x -> m d) -> FL.FoldM m x d
+toFoldM = toFoldAnyM FL.list
+{-# INLINABLE toFoldM #-}
+-}
+-}
 -- | Wrapper for functions to reduce keyed and grouped data to the result type.
 -- It is *strongly* suggested that you use Folds for this step.  Type-inference and
 -- applicative optimization are more straightforward that way.  The non-Fold contructors are
 -- there in order to retro-fit existing functions.
+
 
 -- | Reduce step for non-effectful reductions
 data Reduce k x d where

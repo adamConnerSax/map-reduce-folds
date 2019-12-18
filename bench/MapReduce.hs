@@ -137,7 +137,7 @@ mapReduceStreamlyOrd = FL.fold
 mapReduceStreamlyHash :: Foldable g => g (Char, Int) -> M.Map Char Double
 mapReduceStreamlyHash = FL.fold
   (MRSL.concatStreamFold
-    (MRSL.streamlyEngine MRSL.groupByHashableKey
+    (MRSL.streamlyEngine (MRSL.groupByHashableKey @MRSL.SerialT)
                          (MR.Filter filterPF)
                          (MR.Assign id)
                          (MR.ReduceFold reducePF)
@@ -225,9 +225,9 @@ benchOne dat = bgroup
   , benchPure "mapReduce (Streamly.SerialT Engine, strict hash map)"
               (const dat)
               mapReduceStreamlyHash
-  , benchPure "mapReduce (Streamly.SerialT Engine, strict hash table, ST)"
+{-  , benchPure "mapReduce (Streamly.SerialT Engine, strict hash table, ST)"
               (const dat)
-              mapReduceStreamlyHashST
+              mapReduceStreamlyHashST -}
   , benchPure "mapReduce (Streamly.SerialT Engine, discrimination)"
               (const dat)
               mapReduceStreamlyDiscrimination
@@ -315,7 +315,7 @@ mapReduce2Streaming = FL.fold
 mapReduce2Streamly :: Foldable g => g (M.Map T.Text Int) -> M.Map Int Double
 mapReduce2Streamly = FL.fold
   (MRSL.concatStreamFold
-    (MRSL.streamlyEngine MRSL.groupByHashableKey
+    (MRSL.streamlyEngine (MRSL.groupByHashableKey @MRSL.SerialT)
                          (MR.Unpack unpackMF)
                          (MR.Assign assignMF)
                          (MR.foldAndLabel reduceMFold M.singleton)

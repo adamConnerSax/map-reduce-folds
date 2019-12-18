@@ -1,18 +1,20 @@
+{-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE BangPatterns          #-}
+{-# LANGUAGE ConstraintKinds       #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE GADTs                 #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeOperators         #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE PolyKinds             #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE ConstraintKinds       #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE UndecidableInstances  #-}
-{-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE InstanceSigs          #-}
-{-# LANGUAGE BangPatterns          #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PolyKinds             #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE UndecidableInstances  #-}
+
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Simple
@@ -194,7 +196,7 @@ hashableMapReduceFold
   -> FL.Fold x [d]
 hashableMapReduceFold u a r =
   fmap (runIdentity . MRSL.resultToList)
-    $ MRSL.streamlyEngine MRSL.groupByHashableKey u a r
+    $ MRSL.streamlyEngine (MRSL.groupByHashableKey @MRSL.SerialT) u a r
 {-# INLINABLE hashableMapReduceFold #-}
 
 hashableMapReduceFoldM
