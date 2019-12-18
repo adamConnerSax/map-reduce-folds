@@ -38,20 +38,24 @@ module Control.MapReduce.Engines.Streamly
   , streamlyEngineM
   , concurrentStreamlyEngine
 
-  -- * Result Extraction
+    -- * Streamly Combinators
+  , toStreamlyFold
+  , toStreamlyFoldM
+
+    -- * Result Extraction
   , resultToList
   , concatStream
   , concatStreamFold
   , concatStreamFoldM
   , concatConcurrentStreamFold
 
-  -- * @groupBy@ Functions
+    -- * @groupBy@ Functions
   , groupByHashableKey
   , groupByOrderedKey
   , groupByHashableKeyST
   , groupByDiscriminatedKey
 
-  -- * Re-Exports
+    -- * Re-Exports
   , SerialT
   , WSerialT
   , AheadT
@@ -80,6 +84,7 @@ import qualified Data.Map.Strict               as MS
 import qualified Data.Sequence                 as Seq
 import qualified Streamly.Prelude              as S
 import qualified Streamly                      as S
+import qualified Streamly.Internal.Data.Fold   as SF
 import           Streamly                       ( SerialT
                                                 , WSerialT
                                                 , AheadT
@@ -89,6 +94,15 @@ import           Streamly                       ( SerialT
                                                 , MonadAsync
                                                 , IsStream
                                                 )
+
+-- | convert a Control.Foldl FoldM into a Streamly.Data.Fold fold
+toStreamlyFoldM :: FL.FoldM m a b -> SF.Fold m a b
+toStreamlyFoldM (FL.FoldM step start done) = SF.mkFold step start done
+
+-- | convert a Control.Foldl Fold into a Streamly.Data.Fold fold
+toStreamlyFold :: Monad m => FL.Fold a b -> SF.Fold m a b
+toStreamlyFold (FL.Fold step start done) = SF.mkPure step start done
+
 
 -- | unpack for streamly based map/reduce
 unpackStream :: S.IsStream t => MRC.Unpack x y -> t Identity x -> t Identity y
