@@ -83,6 +83,7 @@ import qualified Data.HashMap.Strict           as HMS
 import qualified Data.HashTable.Class          as HT
 import qualified Data.HashTable.ST.Cuckoo      as HTC
 import qualified Data.Map.Strict               as MS
+import           Data.Monoid                    ( Endo(..) )
 import qualified Data.Sequence                 as Seq
 import qualified Streamly.Prelude              as S
 import qualified Streamly                      as S
@@ -167,21 +168,14 @@ concatConcurrentStreamFold = concatStreamFoldM . FL.generalize
 
 -- | map-reduce-fold builder returning a @SerialT Identity d@ result
 streamlyEngine
-  :: forall
-       y
-       k
-       c
-       x
-       d
-   . (  forall z
-   . S.SerialT Identity (k, z)
-  -> S.SerialT Identity (k, S.SerialT Identity z)
-  )
+  :: forall y k c x d
+   . ({-Foldable g, Functor g-})
+  => (forall z . S.SerialT Identity (k, z) -> S.SerialT Identity (k, S.SerialT Identity z))
   -> MRE.MapReduceFold y k c (SerialT Identity) x d
 streamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
   (flip S.cons)
   S.nil
-  ( S.map (\(k, lc) -> runIdentity $ streamlyReduce r k lc)
+  ( S.map (runIdentity . (uncurry $ streamlyReduce r))--(MRE.uncurryReduceFold $ MRE.reduceFoldVia FL.list r)
   . groupByKey
   . S.map a
   . unpackStream u
@@ -198,13 +192,13 @@ unpackConcurrently (MRC.Unpack f) = S.concatMap (S.fromFoldable . f)
 -- | possibly (depending on chosen stream types) concurrent map-reduce-fold builder returning an @(Istream t, MonadAsync m) => t m d@ result
 concurrentStreamlyEngine
   :: forall tIn tOut m y k c x d
-   . (S.IsStream tIn, S.IsStream tOut, S.MonadAsync m)
+   . (S.IsStream tIn, S.IsStream tOut, S.MonadAsync m {-,Foldable g, Functor g-})
   => (forall z . S.SerialT m (k, z) -> S.SerialT m (k, S.SerialT m z))
   -> MRE.MapReduceFold y k c (tOut m) x d
 concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
   (\s a' -> (return a') `S.consM` s)
   S.nil
-  ( S.mapM (\(k, lc) -> streamlyReduce r k lc)
+  ( S.mapM (\(k, lc) -> streamlyReduce r k lc)  --(return . (MRE.uncurryReduceFold $ MRE.reduceFoldVia FL.list r))
   . S.adapt @SerialT @tOut -- make it concurrent for reducing
   . groupByKey
   . S.adapt @tIn @SerialT-- make it serial for grouping
@@ -216,9 +210,9 @@ concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
 -- | effectful map-reduce-fold engine returning a (Istream t => t m d) result
 -- The "MonadAsync" constraint here more or less requires us to run in IO, or something IO like.
 streamlyEngineM
-  :: forall t m y k c x d
-   . (S.IsStream t, Monad m, S.MonadAsync m)
-  => (forall z . SerialT m (k, z) -> SerialT m (k, S.SerialT m z))
+  :: forall t g m y k c x d
+   . (S.IsStream t, Monad m, S.MonadAsync m, Traversable g)
+  => (forall z . SerialT m (k, z) -> SerialT m (k, g z))
   -> MRE.MapReduceFoldM m y k c (t m) x d
 streamlyEngineM groupByKey u (MRC.AssignM a) r =
   FL.generalize
@@ -226,7 +220,7 @@ streamlyEngineM groupByKey u (MRC.AssignM a) r =
     $ FL.Fold
         (flip S.cons)
         S.nil
-        ( S.mapM (\(k, lc) -> streamlyReduceM r k lc)
+        ( S.mapM (MRE.uncurryReduceFoldM $ MRE.reduceFoldMViaPure FL.list r)
         . groupByKey -- this requires a serial stream.
         . S.mapM a
         . unpackStreamM u
@@ -242,12 +236,14 @@ toStreamF = FL.Fold (flip S.cons) S.nil id
 -- NB: this function uses the fact that @SerialT m@ is a monad
 groupByHashableKey
   :: forall t m k c
-   . (Monad m, Hashable k, Eq k, S.IsStream t, Monoid (t m c))
+   . (Monad m, Hashable k, Eq k, S.IsStream t)
   => S.SerialT m (k, c)
   -> S.SerialT m (k, t m c)
 groupByHashableKey s = do
   lkc <- S.yieldM (S.toList s)
-  let hm = fmap ($! S.nil) $ HMS.fromListWith (<>) $ fmap (second S.cons) lkc
+  let hm = fmap (($ S.nil) . appEndo) $ HMS.fromListWith (<>) $ fmap
+        (second $ Endo . S.cons)
+        lkc
   HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
 {-# INLINABLE groupByHashableKey #-}
 
@@ -272,7 +268,9 @@ groupByOrderedKey
   -> S.SerialT m (k, S.SerialT m c)
 groupByOrderedKey s = do
   lkc <- S.yieldM (S.toList s)
-  let hm = fmap ($ S.nil) $ MS.fromListWith (<>) $ fmap (second $ S.cons) lkc
+  let hm = fmap (($ S.nil) . appEndo) $ MS.fromListWith (<>) $ fmap
+        (second $ Endo . S.cons)
+        lkc
   MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
 {-# INLINABLE groupByOrderedKey #-}
 

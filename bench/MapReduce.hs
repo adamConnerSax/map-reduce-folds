@@ -137,7 +137,7 @@ mapReduceStreamlyOrd = FL.fold
 mapReduceStreamlyHash :: Foldable g => g (Char, Int) -> M.Map Char Double
 mapReduceStreamlyHash = FL.fold
   (MRSL.concatStreamFold
-    (MRSL.streamlyEngine MRSL.groupByHashableKey
+    (MRSL.streamlyEngine (MRSL.groupByHashableKey @MRSL.SerialT)
                          (MR.Filter filterPF)
                          (MR.Assign id)
                          (MR.ReduceFold reducePF)
@@ -171,15 +171,16 @@ mapReduceStreamlyDiscrimination = FL.fold
 
 mapReduceStreamlyC
   :: forall tIn tOut m g
-   . (MonadAsync m, Foldable g, MRSL.IsStream tIn, MRSL.IsStream tOut)
+   . (MonadAsync m, MRSL.IsStream tIn, MRSL.IsStream tOut, Foldable g)
   => g (Char, Int)
   -> m (M.Map Char Double)
 mapReduceStreamlyC = FL.foldM
   (MRSL.concatConcurrentStreamFold
-    ((MRSL.concurrentStreamlyEngine @tIn @tOut) MRSL.groupByHashableKey
-                                                (MR.Filter filterPF)
-                                                (MR.Assign id)
-                                                (MR.ReduceFold reducePF)
+    ((MRSL.concurrentStreamlyEngine @tIn @tOut)
+      (MRSL.groupByHashableKey @MRSL.SerialT)
+      (MR.Filter filterPF)
+      (MR.Assign id)
+      (MR.ReduceFold reducePF)
     )
   )
 {-# INLINE mapReduceStreamlyC #-}
