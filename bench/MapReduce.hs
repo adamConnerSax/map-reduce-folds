@@ -137,7 +137,7 @@ mapReduceStreamlyOrd = FL.fold
 mapReduceStreamlyHash :: Foldable g => g (Char, Int) -> M.Map Char Double
 mapReduceStreamlyHash = FL.fold
   (MRSL.concatStreamFold
-    (MRSL.streamlyEngine (MRSL.groupByHashableKey @MRSL.SerialT)
+    (MRSL.streamlyEngine MRSL.groupByHashableKey
                          (MR.Filter filterPF)
                          (MR.Assign id)
                          (MR.ReduceFold reducePF)

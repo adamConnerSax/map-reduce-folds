@@ -100,16 +100,18 @@ import           Streamly                       ( SerialT
 -- | convert a Control.Foldl FoldM into a Streamly.Data.Fold fold
 toStreamlyFoldM :: FL.FoldM m a b -> SF.Fold m a b
 toStreamlyFoldM (FL.FoldM step start done) = SF.Fold step start done
+{-# INLINABLE toStreamlyFoldM #-}
 
 -- | convert a Control.Foldl Fold into a Streamly.Data.Fold fold
 toStreamlyFold :: Monad m => FL.Fold a b -> SF.Fold m a b
 toStreamlyFold (FL.Fold step start done) = SF.mkPure step start done
-
+{-# INLINABLE toStreamlyFold #-}
 
 streamlyReduce
   :: forall m k x d . Monad m => MRC.Reduce k x d -> k -> S.SerialT m x -> m d
 streamlyReduce (MRC.Reduce     f) k = fmap (f k) . S.toList
 streamlyReduce (MRC.ReduceFold f) k = S.fold (toStreamlyFold (f k))
+{-# INLINABLE streamlyReduce #-}
 
 streamlyReduceM
   :: forall m k x d
@@ -120,7 +122,7 @@ streamlyReduceM
   -> m d
 streamlyReduceM (MRC.ReduceM     f) k = join . fmap (f k) . S.toList
 streamlyReduceM (MRC.ReduceFoldM f) k = S.fold (toStreamlyFoldM (f k))
-
+{-# INLINABLE streamlyReduceM #-}
 --streamlyReduceM ::  
 
 
@@ -139,24 +141,29 @@ unpackStreamM (MRC.UnpackM f) = S.concatMapM (fmap S.fromFoldable . f)
 -- | make a stream into an (effectful) @[]@
 resultToList :: (Monad m, S.IsStream t) => t m a -> m [a]
 resultToList = S.toList . S.adapt
+{-# INLINABLE resultToList #-}
 
 -- | mappend all in a monoidal stream
 concatStream :: (Monad m, Monoid a) => S.SerialT m a -> m a
 concatStream = S.foldl' (<>) mempty
+{-# INLINABLE concatStream #-}
 
 -- | mappend everything in a pure Streamly fold
 concatStreamFold :: Monoid b => FL.Fold a (S.SerialT Identity b) -> FL.Fold a b
 concatStreamFold = fmap (runIdentity . concatStream)
+{-# INLINABLE concatStreamFold #-}
 
 -- | mappend everything in an effectful Streamly fold.
 concatStreamFoldM
   :: (Monad m, Monoid b, S.IsStream t) => FL.FoldM m a (t m b) -> FL.FoldM m a b
 concatStreamFoldM = MRC.postMapM (concatStream . S.adapt)
+{-# INLINABLE concatStreamFoldM #-}
 
 -- | mappend everything in a concurrent Streamly fold.
 concatConcurrentStreamFold
   :: (Monad m, Monoid b, S.IsStream t) => FL.Fold a (t m b) -> FL.FoldM m a b
 concatConcurrentStreamFold = concatStreamFoldM . FL.generalize
+{-# INLINABLE concatConcurrentStreamFold #-}
 
 -- | map-reduce-fold builder returning a @SerialT Identity d@ result
 streamlyEngine
@@ -229,6 +236,8 @@ streamlyEngineM groupByKey u (MRC.AssignM a) r =
 toStreamF :: forall t m a . (Monad m, S.IsStream t) => FL.Fold a (t m a)
 toStreamF = FL.Fold (flip S.cons) S.nil id
 
+-- Church-encoded stream building
+
 -- | Group streamly stream of @(k,c)@ by @hashable@ key.
 -- NB: this function uses the fact that @SerialT m@ is a monad
 groupByHashableKey
@@ -238,7 +247,7 @@ groupByHashableKey
   -> S.SerialT m (k, t m c)
 groupByHashableKey s = do
   lkc <- S.yieldM (S.toList s)
-  let hm = HMS.fromListWith (<>) $ fmap (second $ S.yield) lkc
+  let hm = fmap ($! S.nil) $ HMS.fromListWith (<>) $ fmap (second S.cons) lkc
   HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
 {-# INLINABLE groupByHashableKey #-}
 
@@ -263,7 +272,7 @@ groupByOrderedKey
   -> S.SerialT m (k, S.SerialT m c)
 groupByOrderedKey s = do
   lkc <- S.yieldM (S.toList s)
-  let hm = MS.fromListWith (<>) $ fmap (second $ S.yield) lkc
+  let hm = fmap ($ S.nil) $ MS.fromListWith (<>) $ fmap (second $ S.cons) lkc
   MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
 {-# INLINABLE groupByOrderedKey #-}
 
