@@ -1,0 +1,5 @@
+packages: ./
+with-compiler: ghc
+
+-- for discrimination
+allow-newer: hashable 
