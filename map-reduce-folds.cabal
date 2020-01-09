@@ -1,7 +1,7 @@
 cabal-version:       2.2
                                           
 name:                map-reduce-folds
-version:             0.1.0.3
+version:             0.1.0.4
 build-type:          Simple
 synopsis:            foldl wrappers for map-reduce
 description:         map-reduce-folds simplifies the building of folds to do map-reduce style computations on collections.  It breaks the map/reduce into an unpacking step where items may be filtered, transformed or "melted" (made into several new items), an assign step where the unpacked items are assigned keys, a grouping step where the assigned items are grouped by key and then a reduce step which is applied to each grouped subset.  Tools are provided to simplify building the individual steps and then "engines" are provided for combining them into efficient folds returning an assortment of containers.  The various pieces are replicated for effectful (monadic) steps producing effectful (monadic) folds.
@@ -37,7 +37,7 @@ library
   if flag(dump-core)
     build-depends: dump-core
     ghc-options: -fforce-recomp -fplugin=DumpCore -fplugin-opt DumpCore:core-html  
-  ghc-options: -Wall -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
+  ghc-options: -Wall -O2 -fspec-constr-recursive=16 -fmax-worker-args=16 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
   exposed-modules: Control.MapReduce
                  , Control.MapReduce.Core
                  , Control.MapReduce.Simple
@@ -85,7 +85,7 @@ benchmark bench-map-reduce
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench
   other-modules:       
-  ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings -fforce-recomp
+  ghc-options:         -O2 -fspec-constr-recursive=16 -fmax-worker-args=16 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings -fforce-recomp
 --                       -threaded "-with-rtsopts=-N"
   main-is:             MapReduce.hs
   build-depends:       map-reduce-folds >= 0.1.0.0, 
@@ -100,7 +100,7 @@ test-suite listStats
     type: exitcode-stdio-1.0       
     main-is: ListStats.hs
     hs-source-dirs: examples
-    ghc-options: -Wall
+    ghc-options: -Wall -O2 -fspec-constr-recursive=16 -fmax-worker-args=16
     build-depends: map-reduce-folds -any
     default-language:    Haskell2010
 
@@ -109,6 +109,6 @@ test-suite readmeExample
     type: exitcode-stdio-1.0       
     main-is: readmeExample.hs
     hs-source-dirs: examples
-    ghc-options: -Wall
+    ghc-options: -Wall -O2 -fspec-constr-recursive=16 -fmax-worker-args=16
     build-depends: map-reduce-folds -any
     default-language:    Haskell2010                                     
