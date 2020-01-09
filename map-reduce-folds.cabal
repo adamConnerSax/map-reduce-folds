@@ -36,8 +36,8 @@ library
   import: deps
   if flag(dump-core)
     build-depends: dump-core
-    ghc-options: -fforce-recomp -fplugin=DumpCore -fplugin-opt DumpCore:core-html  
-  ghc-options: -Wall -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings
+    ghc-options: -O2 -fspec-constr-recursive=16 -fmax-worker-args=16 -fforce-recomp -fplugin=DumpCore -fplugin-opt DumpCore:core-html  
+  ghc-options: -Wall -O2 -fspec-constr-recursive=16 -fmax-worker-args=16
   exposed-modules: Control.MapReduce
                  , Control.MapReduce.Core
                  , Control.MapReduce.Simple
@@ -86,7 +86,7 @@ benchmark bench-map-reduce
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench
   other-modules:       
-  ghc-options:         -O3 -fspecialise-aggressively -funbox-strict-fields -fexpose-all-unfoldings -fforce-recomp
+  ghc-options:         -O2 -fspec-constr-recursive=16 -fmax-worker-args=16
 --                       -threaded "-with-rtsopts=-N"
   main-is:             MapReduce.hs
   build-depends:       map-reduce-folds >= 0.1.0.0, 
