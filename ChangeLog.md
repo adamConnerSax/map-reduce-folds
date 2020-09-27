@@ -1,3 +1,7 @@
+* version 0.1.0.5
+* Bumped base upper bound
+* Checked compilation with ghc-8.10.2
+
 * version 0.1.0.4
 * Bumped some upper bounds in cabal file
 * Added/changed some optimization flags for streamly
