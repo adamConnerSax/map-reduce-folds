@@ -1,5 +1,5 @@
 packages: ./
-with-compiler: ghc
+
 
 -- discrimination has an upper bound on hashable which makes building with GHC 8.8.1 impossible
 allow-newer: hashable 
