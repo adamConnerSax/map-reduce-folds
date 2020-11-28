@@ -1,4 +1,4 @@
-# map-reduce-folds v 0.1.0.0
+# map-reduce-folds v 0.1.0.6
 
 [![Build Status][travis-badge]][travis]
 [![Hackage][hackage-badge]][hackage]

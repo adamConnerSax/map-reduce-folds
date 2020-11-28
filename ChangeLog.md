@@ -1,3 +1,6 @@
+* version 0.1.0.6
+* Using ```Data.List.NonEmpty``` to clarify/fix use of partial ```head``` in Streamly Discriminated GroupBy.
+
 * version 0.1.0.5
 * Bumped base upper bound
 * Checked compilation with ghc-8.10.2

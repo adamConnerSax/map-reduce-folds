@@ -80,6 +80,8 @@ import           Data.Hashable                  ( Hashable )
 import qualified Data.HashMap.Strict           as HMS
 import qualified Data.HashTable.Class          as HT
 import qualified Data.HashTable.ST.Cuckoo      as HTC
+import qualified Data.List.NonEmpty            as LNE
+import qualified Data.Maybe                    as Maybe 
 import qualified Data.Map.Strict               as MS
 import qualified Data.Sequence                 as Seq
 import qualified Streamly.Prelude              as S
@@ -245,7 +247,7 @@ groupByDiscriminatedKey
   -> S.SerialT m (k, Seq.Seq c)
 groupByDiscriminatedKey s = do
   lkc <- S.yieldM (S.toList s)
-  let g :: [(k, c)] -> (k, Seq.Seq c)
-      g x = let k = fst (head x) in (k, F.fold $ fmap (Seq.singleton . snd) x)
-  S.fromFoldable $ fmap g $ DG.groupWith fst lkc
+  let g :: LNE.NonEmpty (k, c) -> (k, Seq.Seq c)
+      g x = let k = fst (LNE.head x) in (k, F.fold $ fmap (Seq.singleton . snd) x)
+  S.fromFoldable $ Maybe.catMaybes . fmap (fmap g . LNE.nonEmpty) $ DG.groupWith fst lkc
 {-# INLINABLE groupByDiscriminatedKey #-}
