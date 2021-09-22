@@ -1,0 +1,16 @@
+cradle:
+  cabal:
+    - path: "./src"
+      component: "lib:map-reduce-folds"
+
+    - path: "./test"
+      component: "map-reduce-folds:test:map-reduce-folds-test"
+
+    - path: "./bench/MapReduce.hs"
+      component: "map-reduce-folds:bench:bench-map-reduce"
+
+    - path: "./examples"
+      component: "map-reduce-folds:test:listStats"
+
+    - path: "./examples"
+      component: "map-reduce-folds:test:readmeExample"

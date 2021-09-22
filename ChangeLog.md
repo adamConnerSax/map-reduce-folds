@@ -1,3 +1,6 @@
+* version 0.1.1.0
+* Changes for streamly >= 0.8
+
 * version 0.1.0.7
 * Bumped some upper bounds in prep for ghc-9
 

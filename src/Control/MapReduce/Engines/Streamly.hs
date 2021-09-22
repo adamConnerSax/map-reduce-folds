@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                   #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE GADTs                 #-}
@@ -13,7 +14,7 @@
 {-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE BangPatterns          #-}
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
+{-# OPTIONS_GHC -O2 -fwarn-incomplete-patterns #-}
 {-|
 Module      : Control.MapReduce.Engines.Streams
 Description : map-reduce-folds builders
@@ -81,9 +82,22 @@ import qualified Data.HashMap.Strict           as HMS
 import qualified Data.HashTable.Class          as HT
 import qualified Data.HashTable.ST.Cuckoo      as HTC
 import qualified Data.List.NonEmpty            as LNE
-import qualified Data.Maybe                    as Maybe 
+import qualified Data.Maybe                    as Maybe
 import qualified Data.Map.Strict               as MS
 import qualified Data.Sequence                 as Seq
+#if MIN_VERSION_streamly(0,8,0)
+import qualified Streamly.Prelude              as S
+import qualified Streamly.Internal.Data.Fold   as SF
+import           Streamly.Prelude              ( SerialT
+                                                , WSerialT
+                                                , AheadT
+                                                , AsyncT
+                                                , WAsyncT
+                                                , ParallelT
+                                                , MonadAsync
+                                                , IsStream
+                                                )
+#else
 import qualified Streamly.Prelude              as S
 import qualified Streamly                      as S
 import qualified Streamly.Internal.Data.Fold   as SF
@@ -96,6 +110,27 @@ import           Streamly                       ( SerialT
                                                 , MonadAsync
                                                 , IsStream
                                                 )
+import qualified Streamly.Internal.Data.Parser.ParserK.Type as Streamly
+#endif
+
+#if MIN_VERSION_streamly(0,8,0)
+fromEffect :: (Monad m, IsStream t) => m a -> t m a
+fromEffect = S.fromEffect
+{-# INLINE fromEffect #-}
+
+-- | convert a Control.Foldl FoldM into a Streamly.Data.Fold fold
+toStreamlyFoldM :: Functor m => FL.FoldM m a b -> SF.Fold m a b
+toStreamlyFoldM (FL.FoldM step start done) = SF.mkFoldM step' (SF.Partial <$> start) done where
+  step' s a = SF.Partial <$> step s a
+
+-- | convert a Control.Foldl Fold into a Streamly.Data.Fold fold
+toStreamlyFold :: Monad m => FL.Fold a b -> SF.Fold m a b
+toStreamlyFold (FL.Fold step start done) = SF.mkFold step' (SF.Partial start) done where
+  step' s a = SF.Partial $ step s a
+#else
+fromEffect :: (Monad m, IsStream t) => m a -> t m a
+fromEffect = Streamly.yieldM
+{-# INLINE fromEffect #-}
 
 -- | convert a Control.Foldl FoldM into a Streamly.Data.Fold fold
 toStreamlyFoldM :: FL.FoldM m a b -> SF.Fold m a b
@@ -104,7 +139,7 @@ toStreamlyFoldM (FL.FoldM step start done) = SF.mkFold step start done
 -- | convert a Control.Foldl Fold into a Streamly.Data.Fold fold
 toStreamlyFold :: Monad m => FL.Fold a b -> SF.Fold m a b
 toStreamlyFold (FL.Fold step start done) = SF.mkPure step start done
-
+#endif
 
 -- | unpack for streamly based map/reduce
 unpackStream :: S.IsStream t => MRC.Unpack x y -> t Identity x -> t Identity y
@@ -208,7 +243,7 @@ groupByHashableKey
   => S.SerialT m (k, c)
   -> S.SerialT m (k, Seq.Seq c)
 groupByHashableKey s = do
-  lkc <- S.yieldM (S.toList s)
+  lkc <- fromEffect (S.toList s)
   let hm = HMS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
   HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
 {-# INLINABLE groupByHashableKey #-}
@@ -219,7 +254,7 @@ groupByHashableKey s = do
 groupByOrderedKey
   :: (Monad m, Ord k) => S.SerialT m (k, c) -> S.SerialT m (k, Seq.Seq c)
 groupByOrderedKey s = do
-  lkc <- S.yieldM (S.toList s)
+  lkc <- fromEffect (S.toList s)
   let hm = MS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
   MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
 {-# INLINABLE groupByOrderedKey #-}
@@ -231,7 +266,7 @@ groupByHashableKeyST
   => S.SerialT m (k, c)
   -> S.SerialT m (k, Seq.Seq c)
 groupByHashableKeyST st = do
-  lkc <- S.yieldM (S.toList st)
+  lkc <- fromEffect (S.toList st)
   ST.runST $ do
     hm <- (MRE.fromListWithHT @HTC.HashTable) (<>)
       $ fmap (second Seq.singleton) lkc
@@ -246,7 +281,7 @@ groupByDiscriminatedKey
   => S.SerialT m (k, c)
   -> S.SerialT m (k, Seq.Seq c)
 groupByDiscriminatedKey s = do
-  lkc <- S.yieldM (S.toList s)
+  lkc <- fromEffect (S.toList s)
   let g :: LNE.NonEmpty (k, c) -> (k, Seq.Seq c)
       g x = let k = fst (LNE.head x) in (k, F.fold $ fmap (Seq.singleton . snd) x)
   S.fromFoldable $ Maybe.catMaybes . fmap (fmap g . LNE.nonEmpty) $ DG.groupWith fst lkc
