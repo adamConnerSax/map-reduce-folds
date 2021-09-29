@@ -110,7 +110,7 @@ import           Streamly                       ( SerialT
                                                 , MonadAsync
                                                 , IsStream
                                                 )
-import qualified Streamly.Internal.Data.Parser.ParserK.Type as Streamly
+--import qualified Streamly.Internal.Data.Parser.ParserK.Type as Streamly
 #endif
 
 #if MIN_VERSION_streamly(0,8,0)
@@ -129,7 +129,7 @@ toStreamlyFold (FL.Fold step start done) = SF.mkFold step' (SF.Partial start) do
   step' s a = SF.Partial $ step s a
 #else
 fromEffect :: (Monad m, IsStream t) => m a -> t m a
-fromEffect = Streamly.yieldM
+fromEffect = S.yieldM
 {-# INLINE fromEffect #-}
 
 -- | convert a Control.Foldl FoldM into a Streamly.Data.Fold fold

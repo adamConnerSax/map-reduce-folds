@@ -1,3 +1,6 @@
+* version 0.1.1.1
+* Bugfix for older versions of streamly
+
 * version 0.1.1.0
 * Changes for streamly >= 0.8
 
