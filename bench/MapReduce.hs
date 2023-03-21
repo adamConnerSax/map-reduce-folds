@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
@@ -38,6 +39,9 @@ import           System.Random                  ( newStdGen
                                                 , randomRs
                                                 , randomRIO
                                                 )
+#if MIN_VERSION_streamly(0,9,0)
+import Streamly.Data.Stream.Prelude (MonadAsync)
+#endif
 
 
 createPairData :: Int -> IO [(Char, Int)]
@@ -134,6 +138,20 @@ mapReduceStreamlyOrd = FL.fold
   )
 {-# INLINE mapReduceStreamlyOrd #-}
 
+
+#if MIN_VERSION_streamly(0,9,0)
+mapReduceStreamlyOrdIO :: (MonadAsync m, Foldable g) => g (Char, Int) -> m (M.Map Char Double)
+mapReduceStreamlyOrdIO = FL.foldM
+  (MRSL.concatStreamFoldM
+    (MRSL.streamlyEngineM MRSL.groupByOrderedKeyIO
+     (MR.generalizeUnpack $ MR.Filter filterPF)
+      (MR.generalizeAssign $ MR.Assign id)
+      (MR.generalizeReduce $ MR.ReduceFold reducePF)
+    )
+  )
+{-# INLINE mapReduceStreamlyOrdIO #-}
+#endif
+
 mapReduceStreamlyHash :: Foldable g => g (Char, Int) -> M.Map Char Double
 mapReduceStreamlyHash = FL.fold
   (MRSL.concatStreamFold
@@ -168,7 +186,8 @@ mapReduceStreamlyDiscrimination = FL.fold
   )
 {-# INLINE mapReduceStreamlyDiscrimination #-}
 
-
+#if MIN_VERSION_streamly(0,9,0)
+#else
 mapReduceStreamlyC
   :: forall tIn tOut m g
    . (MonadAsync m, Foldable g, MRSL.IsStream tIn, MRSL.IsStream tOut)
@@ -183,7 +202,7 @@ mapReduceStreamlyC = FL.foldM
     )
   )
 {-# INLINE mapReduceStreamlyC #-}
-
+#endif
 
 mapReduceVector :: Foldable g => g (Char, Int) -> M.Map Char Double
 mapReduceVector = FL.fold
@@ -222,6 +241,11 @@ benchOne dat = bgroup
   , benchPure "mapReduce (Streamly.SerialT Engine, strict map)"
               (const dat)
               mapReduceStreamlyOrd
+#if MIN_VERSION_streamly(0,9,0)
+  , benchIO "mapReduce (Streamly.SerialT Engine, strict map, streamly toMapIO)"
+              (const dat)
+              mapReduceStreamlyOrdIO
+#endif
   , benchPure "mapReduce (Streamly.SerialT Engine, strict hash map)"
               (const dat)
               mapReduceStreamlyHash
@@ -235,7 +259,8 @@ benchOne dat = bgroup
               (const dat)
               mapReduceVector
   ]
-
+#if MIN_VERSION_streamly(0,9,0)
+#else
 benchConcurrent dat = bgroup
   "Task 1, on (Char, Int). Concurrent Engines"
   [ benchPure "list, parallel (6 threads)" (const dat) mapReduceListP
@@ -249,6 +274,7 @@ benchConcurrent dat = bgroup
             (const dat)
             (mapReduceStreamlyC @MRSL.SerialT @MRSL.AsyncT)
   ]
+#endif
 
 -- a more complex row type
 createMapRows :: Int -> IO (Seq.Seq (M.Map T.Text Int))
@@ -278,7 +304,7 @@ assignMF (a, b, c) = (c, (a, b))
 -- compute the average of the sum of the values in A and B for each group
 reduceMFold :: FL.Fold (Int, Int) Double
 reduceMFold = let g (x, y) = realToFrac (x + y) in FL.premap g FL.mean
---reduceMFoldMap k = fmap (M.singleton k) reduceMFold  
+--reduceMFoldMap k = fmap (M.singleton k) reduceMFold
 
 -- return [(C, <A+B>)]
 
@@ -366,4 +392,9 @@ main :: IO ()
 main = do
   dat  <- createPairData 100000
   dat2 <- createMapRows 100000
-  defaultMain [benchOne dat, benchConcurrent dat, benchTwo dat2]
+  defaultMain [benchOne dat
+#if MIN_VERSION_streamly(0,9,0)
+#else
+              , benchConcurrent dat
+#endif
+              , benchTwo dat2]

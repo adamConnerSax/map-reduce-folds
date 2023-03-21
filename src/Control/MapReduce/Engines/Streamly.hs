@@ -53,10 +53,16 @@ module Control.MapReduce.Engines.Streamly
     -- * @groupBy@ Functions
   , groupByHashableKey
   , groupByOrderedKey
+#if MIN_VERSION_streamly(0,9,0)
+  , groupByOrderedKeyIO
+#endif
   , groupByHashableKeyST
   , groupByDiscriminatedKey
 
     -- * Re-Exports
+#if MIN_VERSION_streamly(0,9,0)
+  , Stream
+#else
   , SerialT
   , WSerialT
   , AheadT
@@ -65,6 +71,7 @@ module Control.MapReduce.Engines.Streamly
   , ParallelT
   , MonadAsync
   , IsStream
+#endif
   )
 where
 
@@ -86,11 +93,15 @@ import qualified Data.Maybe                    as Maybe
 import qualified Data.Map.Strict               as MS
 import qualified Data.Sequence                 as Seq
 #if MIN_VERSION_streamly(0,9,0)
+import Streamly.Data.Stream (Stream)
 import qualified Streamly.Data.Stream as S
-import qualified Streamly.Prelude as SP
+import qualified Streamly.Data.Stream.Prelude as SP
 import qualified Streamly.Data.StreamK as StreamK
 import qualified Streamly.Data.Fold   as SF
+import qualified Streamly.Data.Unfold   as SU
 import qualified Streamly.Internal.Data.Fold   as SF
+import           Control.Monad (join)
+import           Control.Monad.IO.Class (MonadIO)
 #elif MIN_VERSION_streamly(0,8,0)
 import qualified Streamly.Prelude              as S
 import qualified Streamly.Internal.Data.Fold   as SF
@@ -119,9 +130,6 @@ import           Streamly                       ( SerialT
 --import qualified Streamly.Internal.Data.Parser.ParserK.Type as Streamly
 #endif
 #if MIN_VERSION_streamly(0,9,0)
-fromEffect :: (Monad m) => m a -> S.Stream m a
-fromEffect = S.fromEffect
-
 -- | convert a Control.Foldl FoldM into a Streamly.Data.Fold fold
 toStreamlyFoldM :: Functor m => FL.FoldM m a b -> SF.Fold m a b
 toStreamlyFoldM (FL.FoldM step start done) = SF.Fold step' (SF.Partial <$> start) done where
@@ -160,41 +168,46 @@ toStreamlyFold :: Monad m => FL.Fold a b -> SF.Fold m a b
 toStreamlyFold (FL.Fold step start done) = SF.mkPure step start done
 #endif
 
-
 -- | unpack for streamly based map/reduce
 #if MIN_VERSION_streamly(0,9,0)
-unpackStream :: MRC.Unpack x y -> S.Stream Identity x -> S.Stream Identity y
-unpackStream (MRC.Filter t) = S.filter t
-unpackStream (MRC.Unpack f) = S.concatMap (StreamK.toStream . StreamK.fromFoldable . f)
-{-# INLINABLE unpackStream #-}
+unpackStreamK :: MRC.Unpack x y -> StreamK.StreamK Identity x -> S.Stream Identity y
+unpackStreamK (MRC.Filter t) = S.filter t . StreamK.toStream
+unpackStreamK (MRC.Unpack f) = StreamK.toStream . StreamK.concatMapWith StreamK.append (StreamK.fromFoldable . f)
+--  S.concatMap (StreamK.toStream . StreamK.fromFoldable . f)
+{-# INLINABLE unpackStreamK #-}
 
 -- | effectful (monadic) unpack for streamly based map/reduce
-unpackStreamM :: (Monad m) => MRC.UnpackM m x y -> S.Stream m x -> S.Stream m y
-unpackStreamM (MRC.FilterM t) = S.filterM t
-unpackStreamM (MRC.UnpackM f) = S.concatMapM (fmap (StreamK.toStream . StreamK.fromFoldable) . f)
-{-# INLINABLE unpackStreamM #-}
+unpackStreamKM :: (Monad m) => MRC.UnpackM m x y -> StreamK.StreamK m x -> S.Stream m y
+unpackStreamKM (MRC.FilterM t) = S.filterM t . StreamK.toStream
+unpackStreamKM (MRC.UnpackM f) = S.concatMapM (fmap (StreamK.toStream . StreamK.fromFoldable) . f) . StreamK.toStream
+{-# INLINABLE unpackStreamKM #-}
 
 -- | make a stream into an (effectful) @[]@
 resultToList :: (Monad m) => S.Stream m a -> m [a]
 resultToList = S.toList
+{-# INLINEABLE resultToList #-}
 
 -- | mappend all in a monoidal stream
 concatStream :: (Monad m, Monoid a) => S.Stream m a -> m a
 concatStream = S.fold (SF.foldl' (<>) mempty)
+{-# INLINEABLE concatStream #-}
 
 -- | mappend everything in a pure Streamly fold
 concatStreamFold :: Monoid b => FL.Fold a (S.Stream Identity b) -> FL.Fold a b
 concatStreamFold = fmap (runIdentity . concatStream)
+{-# INLINEABLE concatStreamFold #-}
 
 -- | mappend everything in an effectful Streamly fold.
 concatStreamFoldM
   :: (Monad m, Monoid b) => FL.FoldM m a (S.Stream m b) -> FL.FoldM m a b
 concatStreamFoldM = MRC.postMapM concatStream
+{-# INLINEABLE concatStreamFoldM #-}
 
 -- | mappend everything in a concurrent Streamly fold.
 concatConcurrentStreamFold
   :: (Monad m, Monoid b) => FL.Fold a (S.Stream m b) -> FL.FoldM m a b
 concatConcurrentStreamFold = concatStreamFoldM . FL.generalize
+{-# INLINEABLE concatConcurrentStreamFold #-}
 
 -- | map-reduce-fold builder returning a @SerialT Identity d@ result
 streamlyEngine
@@ -202,21 +215,21 @@ streamlyEngine
   => (forall z . S.Stream Identity (k, z) -> S.Stream Identity (k, g z))
   -> MRE.MapReduceFold y k c (S.Stream Identity) x d
 streamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
-  (flip S.cons)
-  S.nil
+  (flip StreamK.cons)
+  StreamK.nil
   ( fmap (\(k, lc) -> MRE.reduceFunction r k lc)
-  . groupByKey
-  . fmap a
-  . unpackStream u
+    . groupByKey
+    . fmap a
+    . unpackStreamK u
   )
 {-# INLINABLE streamlyEngine #-}
 
 -- | unpack for concurrent streamly based map/reduce
-unpackConcurrently
-  :: (SP.MonadAsync m) => MRC.Unpack x y -> S.Stream m x -> S.Stream m y
-unpackConcurrently (MRC.Filter t) = S.filter t
-unpackConcurrently (MRC.Unpack f) = S.concatMap ((StreamK.toStream . StreamK.fromFoldable) . f)
-{-# INLINABLE unpackConcurrently #-}
+unpackConcurrentlyK
+  :: (SP.MonadAsync m) => MRC.Unpack x y -> StreamK.StreamK m x -> S.Stream m y
+unpackConcurrentlyK (MRC.Filter t) = S.filter t . StreamK.toStream
+unpackConcurrentlyK (MRC.Unpack f) = S.concatMap ((StreamK.toStream . StreamK.fromFoldable) . f) . StreamK.toStream
+{-# INLINABLE unpackConcurrentlyK #-}
 
 -- | possibly (depending on chosen stream types) concurrent map-reduce-fold builder returning an @(Istream t, MonadAsync m) => t m d@ result
 concurrentStreamlyEngine
@@ -225,12 +238,12 @@ concurrentStreamlyEngine
   => (forall z . S.Stream m (k, z) -> S.Stream m (k, g z))
   -> MRE.MapReduceFold y k c (S.Stream m) x d
 concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
-  (\s a' -> (return a') `S.consM` s)
-  S.nil
+  (\s a' -> (return a') `StreamK.consM` s)
+  StreamK.nil
   ( S.mapM (\(k, lc) -> return $ MRE.reduceFunction r k lc)
   . groupByKey
   . S.mapM (return . a)
-  . unpackConcurrently u
+  . unpackConcurrentlyK u
   )
 {-# INLINABLE concurrentStreamlyEngine #-}
 
@@ -244,54 +257,80 @@ streamlyEngineM
 streamlyEngineM groupByKey u (MRC.AssignM a) r =
   FL.generalize
     $ FL.Fold
-        (flip S.cons)
-        S.nil
+        (flip StreamK.cons)
+        StreamK.nil
         ( S.mapM (\(k, lc) -> MRE.reduceFunctionM r k lc)
         . groupByKey -- this requires a serial stream.
         . S.mapM a
-        . unpackStreamM u
+        . unpackStreamKM u
         )
 {-# INLINABLE streamlyEngineM #-}
 
-toSeq :: Monad m => SF.Fold m a (Seq.Seq a)
-toSeq = SF.Fold (\s a -> pure $ s <> a) (pure Seq.empty) pure
-{-# INLINEABLE toSeq #-}
 
--- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
+toHashMap :: (Monad m, Eq k, Monoid a, Hashable k) => SF.Fold m (k, a) (HMS.HashMap k a)
+toHashMap = SF.foldl' (\hm (k, a) -> HMS.insertWith (<>) k a hm) HMS.empty
+{-# INLINEABLE toHashMap #-}
+
+streamMeta :: Monad m => SF.Fold m a b -> SU.Unfold m b c -> S.Stream m a  -> S.Stream m c
+streamMeta fld unfld = S.concatEffect . fmap (S.unfold unfld) . S.fold fld
+{-# INLINEABLE streamMeta #-}
+
 -- | Group streamly stream of @(k,c)@ by @hashable@ key.
 groupByHashableKey
   :: (Monad m, Hashable k, Eq k)
   => S.Stream m (k, c)
   -> S.Stream m (k, Seq.Seq c)
-groupByHashableKey s = SF.toContainer toSeq
-  lkc <- fromEffect (S.toList s)
-  let hm = HMS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
-  HMS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
+groupByHashableKey = streamMeta toHashMap (SU.lmap HMS.toList $ SU.fromList) . fmap (second Seq.singleton)
 {-# INLINABLE groupByHashableKey #-}
 
--- TODO: Try using Streamly folds and Map.insertWith instead of toList and fromListWith.  Prolly the same.
+toMap :: (Monad m, Monoid a, Ord k) => SF.Fold m (k, a) (MS.Map k a)
+toMap = SF.foldl' (\hm (k, a) -> MS.insertWith (<>) k a hm) MS.empty
+{-# INLINEABLE toMap #-}
+
 -- | Group streamly stream of @(k,c)@ by ordered key.
--- NB: this function uses the fact that @SerialT m@ is a monad
 groupByOrderedKey
   :: (Monad m, Ord k) => S.Stream m (k, c) -> S.Stream m (k, Seq.Seq c)
-groupByOrderedKey s = do
-  lkc <- fromEffect (S.toList s)
-  let hm = MS.fromListWith (<>) $ fmap (second $ Seq.singleton) lkc
-  MS.foldrWithKey (\k lc s' -> S.cons (k, lc) s') S.nil hm
+groupByOrderedKey = --streamMeta (SF.toMap fst (SF.lmap snd toSeq)) (SU.lmap MS.toList $ SU.fromList)
+  streamMeta toMap (SU.lmap MS.toList $ SU.fromList) . fmap (second Seq.singleton)
 {-# INLINABLE groupByOrderedKey #-}
+
+toSeq :: Monad m => SF.Fold m a (Seq.Seq a)
+toSeq = SF.foldl' (\s a -> s <> Seq.singleton a) mempty
+{-# INLINEABLE toSeq #-}
+
+-- | Group streamly stream of @(k,c)@ by ordered key. Using toMapIO for mutable cells in the fold.
+groupByOrderedKeyIO
+  :: (Monad m, MonadIO m, Ord k) => S.Stream m (k, c) -> S.Stream m (k, Seq.Seq c)
+groupByOrderedKeyIO = streamMeta (SF.toMapIO fst (SF.lmap snd toSeq)) (SU.lmap MS.toList $ SU.fromList)
+{-# INLINABLE groupByOrderedKeyIO #-}
+
+{-
+toHashMapSeqST :: (Monad m, Eq k, Hashable k) => SF.Fold m (k, a) (ST.ST s (HTC.HashTable s k (Seq.Seq a)))
+toHashMapSeqST = SF.foldl' (\hm (k, a) -> traverse (mutate k (f a)) hm) HTC.new where
+  mutate k f hm = HTC.mutate hm k f
+  f :: forall s . a -> Maybe (Seq.Seq a) -> Maybe (Seq.Seq a, ((HTC.HashTable s k (Seq.Seq a))))
+  f a ht saM = case saM of
+    Nothing -> (Seq.singleton a, ())
+    Just sa -> (sa Seq.|> a, ())
+{-# INLINEABLE toHashMapSeqST #-}
+-}
 
 -- | Group streamly stream of @(k,c)@ by @hashable@ key. Uses mutable hashtables running in the ST monad.
 -- NB: this function uses the fact that @SerialT m@ is a monad
 groupByHashableKeyST
-  :: (Monad m, Hashable k, Eq k)
+  :: forall m k c . (Monad m, Hashable k, Eq k)
   => S.Stream m (k, c)
   -> S.Stream m (k, Seq.Seq c)
-groupByHashableKeyST st = do
-  lkc <- fromEffect (S.toList st)
-  ST.runST $ do
-    hm <- (MRE.fromListWithHT @HTC.HashTable) (<>)
-      $ fmap (second Seq.singleton) lkc
-    HT.foldM (\s' (k, sc) -> return $ S.cons (k, sc) s') S.nil hm
+groupByHashableKeyST st = S.concatEffect $ fmap listToStream $ S.toList st
+--  lkc <- fromEffect (S.toList st)
+  where
+    listToStream :: [(k, c)] -> S.Stream m (k, Seq.Seq c)
+    listToStream l = S.fromList $ ST.runST $ listToList l
+    listToList :: [(k, c)] -> ST.ST s [(k, Seq.Seq c)]
+    listToList = join . fmap HT.toList . toHT
+    toHT :: [(k, c)] -> ST.ST s (HTC.HashTable s k (Seq.Seq c))
+    toHT l = (MRE.fromListWithHT @HTC.HashTable) (<>)
+        $ fmap (second Seq.singleton) l
 {-# INLINABLE groupByHashableKeyST #-}
 
 
@@ -301,13 +340,16 @@ groupByDiscriminatedKey
   :: (Monad m, DG.Grouping k)
   => S.Stream m (k, c)
   -> S.Stream m (k, Seq.Seq c)
-groupByDiscriminatedKey s = do
-  lkc <- fromEffect (S.toList s)
-  let g :: LNE.NonEmpty (k, c) -> (k, Seq.Seq c)
-      g x = let k = fst (LNE.head x) in (k, F.fold $ fmap (Seq.singleton . snd) x)
-  StreamK.toStream . StreamK.fromFoldable $ Maybe.catMaybes . fmap (fmap g . LNE.nonEmpty) $ DG.groupWith fst lkc
+groupByDiscriminatedKey s =
+  S.concatEffect
+  $ (StreamK.toStream . StreamK.fromFoldable . Maybe.catMaybes . fmap (fmap g . LNE.nonEmpty) . DG.groupWith fst)
+  <$> S.toList s
+  where
+    g :: LNE.NonEmpty (k, c) -> (k, Seq.Seq c)
+    g x = let k = fst (LNE.head x) in (k, F.fold $ fmap (Seq.singleton . snd) x)
 {-# INLINABLE groupByDiscriminatedKey #-}
 #else
+
 unpackStream :: S.IsStream t => MRC.Unpack x y -> t Identity x -> t Identity y
 unpackStream (MRC.Filter t) = S.filter t
 unpackStream (MRC.Unpack f) = S.concatMap (S.fromFoldable . f)
