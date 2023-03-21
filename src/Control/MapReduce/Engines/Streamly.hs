@@ -172,7 +172,7 @@ toStreamlyFold (FL.Fold step start done) = SF.mkPure step start done
 #if MIN_VERSION_streamly(0,9,0)
 unpackStreamK :: MRC.Unpack x y -> StreamK.StreamK Identity x -> S.Stream Identity y
 unpackStreamK (MRC.Filter t) = S.filter t . StreamK.toStream
-unpackStreamK (MRC.Unpack f) = StreamK.toStream . StreamK.concatMapWith StreamK.append (StreamK.fromFoldable . f)
+unpackStreamK (MRC.Unpack f) = S.concatMap (StreamK.toStream . StreamK.fromFoldable . f) . StreamK.toStream
 --  S.concatMap (StreamK.toStream . StreamK.fromFoldable . f)
 {-# INLINABLE unpackStreamK #-}
 
@@ -238,7 +238,7 @@ concurrentStreamlyEngine
   => (forall z . S.Stream m (k, z) -> S.Stream m (k, g z))
   -> MRE.MapReduceFold y k c (S.Stream m) x d
 concurrentStreamlyEngine groupByKey u (MRC.Assign a) r = FL.Fold
-  (\s a' -> (return a') `StreamK.consM` s)
+  (\s a' -> (pure a') `StreamK.consM` s)
   StreamK.nil
   ( S.mapM (\(k, lc) -> return $ MRE.reduceFunction r k lc)
   . groupByKey
@@ -265,7 +265,6 @@ streamlyEngineM groupByKey u (MRC.AssignM a) r =
         . unpackStreamKM u
         )
 {-# INLINABLE streamlyEngineM #-}
-
 
 toHashMap :: (Monad m, Eq k, Monoid a, Hashable k) => SF.Fold m (k, a) (HMS.HashMap k a)
 toHashMap = SF.foldl' (\hm (k, a) -> HMS.insertWith (<>) k a hm) HMS.empty
