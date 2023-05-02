@@ -1,3 +1,6 @@
+* version 0.1.2
+* Compatibility with >=streamly-0.9. Guarded by “streamly9” flag due to various breaking changes between streamly versions.
+
 * version 0.1.1.1
 * Bugfix for older versions of streamly
 
