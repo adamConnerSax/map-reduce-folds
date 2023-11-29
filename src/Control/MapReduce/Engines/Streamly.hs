@@ -129,7 +129,17 @@ import           Streamly                       ( SerialT
                                                 )
 --import qualified Streamly.Internal.Data.Parser.ParserK.Type as Streamly
 #endif
-#if MIN_VERSION_streamly(0,9,0)
+#if MIN_VERSION_streamly(0,10,0)
+-- | convert a Control.Foldl FoldM into a Streamly.Data.Fold fold
+toStreamlyFoldM :: Functor m => FL.FoldM m a b -> SF.Fold m a b
+toStreamlyFoldM (FL.FoldM step start done) = SF.Fold step' (SF.Partial <$> start) done done where
+  step' s a = SF.Partial <$> step s a
+
+-- | convert a Control.Foldl Fold into a Streamly.Data.Fold fold
+toStreamlyFold :: Monad m => FL.Fold a b -> SF.Fold m a b
+toStreamlyFold (FL.Fold step start done) = SF.Fold step' (pure $ SF.Partial $ start) (pure . done) (pure . done) where
+  step' s a = pure $ SF.Partial $ step s a
+#elif MIN_VERSION_streamly(0,9,0)
 -- | convert a Control.Foldl FoldM into a Streamly.Data.Fold fold
 toStreamlyFoldM :: Functor m => FL.FoldM m a b -> SF.Fold m a b
 toStreamlyFoldM (FL.FoldM step start done) = SF.Fold step' (SF.Partial <$> start) done where
