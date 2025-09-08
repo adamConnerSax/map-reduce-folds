@@ -25,7 +25,7 @@ source-repository head
 
 common deps
   build-depends: base                 >= 4.12.0 && < 5,
-                 containers           >= 0.5.0 && < 0.8,
+                 containers           >= 0.5.0 && < 0.9,
                  foldl                >= 1.4.5 && < 1.5,
                  profunctors          >= 5.3 && < 5.7,
                  text                 >= 1.2.3 && < 2.2,
@@ -49,7 +49,7 @@ library
 
   build-depends:
                 discrimination       >= 0.3   && < 0.6,
-                hashable             >= 1.2.4 && < 1.5,
+                hashable             >= 1.2.4 && < 1.6,
                 hashtables           >= 1.2.0.0 && < 1.5,
                 vector               >= 0.12.0 && < 0.14,
                 parallel             >= 3.2.2 && < 3.3,
@@ -70,7 +70,7 @@ test-suite map-reduce-folds-test
   ghc-options:
   build-depends:
                 base
-              , hedgehog >= 0.6.0 && < 1.5
+              , hedgehog >= 0.6.0 && < 1.8
               , map-reduce-folds
               , containers
               , foldl
